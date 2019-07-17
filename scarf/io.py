@@ -2,11 +2,13 @@
 
 import numpy as np
 import json
+import pickle
 from scipy import io as sio
 
 import scarf.instance
 
-__all__ = ["save_json", "read_json", "save_mat", "read_excel"]
+__all__ = ["save_json", "load_json", "save_mat", "load_excel",
+           "save_pickle", "load_pickle"]
 
 
 def save_json(ins, filename):
@@ -30,7 +32,7 @@ def _element_check(obj):
     raise TypeError("Wrong!")
 
 
-def read_json(filename):
+def load_json(filename):
   """Read instance from a json file of preferences."""
   with open(filename) as f:
     all_fields = json.load(f)
@@ -61,6 +63,29 @@ def save_mat(ins, filename):
   )
 
 
-def read_excel(file):
+def load_excel(file):
   """Obtain matching instance from excel"""
   raise NotImplementedError("Developer has been lazy.")
+
+
+def save_pickle(ins, filename):
+  with open(filename, "wb") as g:
+    pickle.dump(
+        {
+            "single_pref_list": ins.single_pref_list,
+            "couple_pref_list": ins.couple_pref_list,
+            "hospital_pref_list": ins.hospital_pref_list,
+            "hospital_cap": ins.hospital_cap
+        }, g
+    )
+
+
+def load_pickle(filename):
+  with open(filename, "rb") as f:
+    all_data = pickle.load(f)
+  return scarf.instance.ScarfInstance(
+      single_pref_list=all_data["single_pref_list"],
+      couple_pref_list=all_data["couple_pref_list"],
+      hospital_pref_list=all_data["hospital_pref_list"],
+      hospital_cap=all_data["hospital_cap"]
+  )

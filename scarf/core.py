@@ -23,6 +23,7 @@ def _update_U_dom_row(U_dom, U, r, new_rowmin_col):
   else:
     U_dom[r, :] = U[r, :] <= new_rowmin
 
+
 @nb.njit('void(float32[:,:], float32[:], int64, int64, int64[:])', parallel=True)
 def _update_A_b(A, b, row, pivot, oprows):
   """Subtract a multiple of the row A[row, :] from all other rows."""
