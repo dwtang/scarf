@@ -54,7 +54,7 @@ def save_mat(ins, filename):
   sio.savemat(
         filename,
         {
-            "A": ins.A,
+            "A": ins.A.astype(np.int32),
             "U": ins.U,
             "b": np.array(ins.full_b()).reshape(-1, 1)
         }

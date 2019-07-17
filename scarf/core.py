@@ -9,7 +9,7 @@ __all__ = ["scarf_solve"]
 
 @nb.njit('int32(int32[:])')
 def my_argmin(vec):
-  """Argmin function, return's largest index in the case of a tie"""
+  """Argmin function, return's largest index in the case of a tie."""
   return len(vec) - 1 - np.argmin(vec[-1:-1-len(vec):-1])
 
 
@@ -23,10 +23,25 @@ def _update_U_dom_row(U_dom, U, r, new_rowmin_col):
   else:
     U_dom[r, :] = U[r, :] <= new_rowmin
 
+@nb.njit('void(float32[:,:], float32[:], int64, int64, int64[:])', parallel=True)
+def _update_A_b(A, b, row, pivot, oprows):
+  """Subtract a multiple of the row A[row, :] from all other rows."""
+  for r0 in nb.prange(len(oprows)):
+    r = oprows[r0]
+    if r != row :
+      b[r] -= A[r, pivot] * b[row]
+      A[r, :] -= A[r, pivot] * A[row, :]
 
-# 'int32(float32[:,:], float32[:], int32[:], int32)'
-@nb.njit(nb.i8(nb.float32[:, :], nb.float32[:], 
-         nb.types.List(nb.i8, reflected=True), nb.i8), parallel=True)
+
+@nb.njit('void(float32[:,:], float32[:], int64, int64)', parallel=True)
+def _update_A_b_plain(A, b, row, pivot):
+  """Subtract a multiple of the row A[row, :] from all other rows."""
+  for r in nb.prange(len(b)):
+    if r != row :
+      b[r] -= A[r, pivot] * b[row]
+      A[r, :] -= A[r, pivot] * A[row, :]
+
+
 def cardinal_pivot(A, b, card_basis, pivot):
   """Cardinal pivoting step.
 
@@ -44,42 +59,20 @@ def cardinal_pivot(A, b, card_basis, pivot):
   # transfrom row index to the row index of matrix A
   row = candrows[row]
   col = np.nonzero(np.take(A[row, :], card_basis))[0][0]
-  # transfrom col index to the column index of matrix A
-  # for col in range(len(card_basis)):
-    # if A[row, card_basis[col]] > 0:
-      # break
   new_pivot = card_basis[col]
 
   # In principle, could return new_pivot now can perform the matrix and vector
   # in parallel with ordinal pivot step
   card_basis[col] = pivot
 
-  # Make A[:, pivot] a unit vector (which is 1 at row `row`)
-  # Scale row `row` by a factor of 1 / A[row, pivot]
   b[row] = b[row] / A[row, pivot]
   A[row, :] = A[row, :] / A[row, pivot]
-
-  # Subtract a multiple of the row A[row, :] from all other rows
-  # not_row = np.concatenate((np.arange(row), np.arange(row+1, len(b))))
-  # b[:row] -= A[:row, pivot] * b[row]
-  # b[row+1:] -= A[row+1:, pivot] * b[row]
-  # b[not_row] -= A[not_row, pivot] * b[row]
-  # for r in not_row:  # let numba accelerate the for loop
-    # A[r, :] -= A[r, pivot] * A[row, :]
-  for r in nb.prange(len(b)):
-    if r != row:
-      b[r] -= A[r, pivot] * b[row]
-      A[r, :] -= A[r, pivot] * A[row, :]
-  # A[:row, :] -= np.outer(A[:row, pivot], A[row, :])
-  # A[row+1:, :] -= np.outer(A[row+1:, pivot], A[row, :])
-  # A[not_row, :] -= np.outer(A[not_row, pivot], A[row, :])
+  _update_A_b(A, b, row, pivot, np.nonzero(A[:, pivot])[0])
+  # _update_A_b_plain(A, b, row, pivot)
 
   return new_pivot
 
 
-# @nb.njit(nb.i8(nb.i4[:,:], nb.types.List(nb.i8, reflected=True), 
-    # nb.i4, nb.types.List(nb.i8, reflected=True), nb.b1[:,:]), parallel=True)
-# @nb.jit
 def ordinal_pivot(U, ord_basis, pivot, rowmin_locations, U_dom):
   """Ordinal pivot step.
 
@@ -97,49 +90,25 @@ def ordinal_pivot(U, ord_basis, pivot, rowmin_locations, U_dom):
   """
   j = np.searchsorted(ord_basis, pivot)
   ru = rowmin_locations.pop(j)
-  # ru = rowmin_locations[j]
-  # rowmin_locations[j:j+1] = []
-  # assert(j == my_argmin(U[ru, basis]))
   pivot_out = ord_basis.pop(j) # remove `pivot` from `basis`
-  # ord_basis[j:j+1] = []
-  # assert(pivot_out == pivot)
-  # Because of removal of `pivot`, row `ru` will have a new row min
-  # col_w_2_rowmin = my_argmin_v1(U[ru, :], ord_basis)  # find the new row min location
-  col_w_2_rowmin = my_argmin(np.take(U[ru, :], ord_basis))  # find the new row min location
-  # returns larger index (smaller actual column index) in case of a tie, 
-  # this is desired since we want the abstraction that left 0's are larger than
-  # right 0's
-  # Now column ord_basis[cn] has two row min, find the original row that has min in
-  # this column.
+  col_w_2_rowmin = my_argmin(np.take(U[ru, :], ord_basis))
+  # Now column ord_basis[cn] has two row min.
   ri = rowmin_locations[col_w_2_rowmin]  # Our row of interest. 
   # We will use this row to find a new column to ordinal basis
   # row `ru` has a new row min at column ord_basis[cn]
   rowmin_locations[col_w_2_rowmin] = ru  # The row min location is updated
   _update_U_dom_row(U_dom, U, ru, ord_basis[col_w_2_rowmin])
 
-  # new_mins = U[(rowmin_locations, ord_basis)]
   # Find columns that are ONLY dominated via row `ri`
-  # not_ri = np.concatenate((np.arange(ri), np.arange(ri+1, U.shape[0])))
-  # assert(U_dom[ru, pivot])
-  
-  # candcols = np.nonzero(~np.any(U_dom[not_ri, :], axis=0))[0]
-  # candcols = np.nonzero(np.sum(U_dom[not_ri, :], axis=0) == 0)[0]
-  # Only True if all elements in a column are False
-  # Ah... np.any with axis param is not supported in nb.njit
-  # However I can do this instead!
-  # candcols = np.nonzero(
-  #     np.sum(U_dom[:ri, :], axis=0) | 
-  #     np.sum(U_dom[ri+1:, :], axis=0) == 0)[0] 
   candcols = np.nonzero(
       ~(np.any(U_dom[:ri, :], axis=0) | 
         np.any(U_dom[ri+1:, :], axis=0)))[0] 
-      # and I avoided advanced indexing! wowowowowow
 
   # Among these rows, choose the one with the largest utility
   new_col = np.argmax(np.take(U[ri, :], candcols)) # ri, candcols
   new_pivot = candcols[new_col]
 
-  # In principle, could return here
+  # Could return here for multithread implementation
 
   # Update basis and book-keeping variables
   j = np.searchsorted(ord_basis, new_pivot)
@@ -171,13 +140,14 @@ def _scarf_pivot(A, U, b, card_basis, ord_basis, pivot_0,
 
   Returns:
     x: a real-valued vector of length (n,)
-    basis: a list of column indices of length (m,)
+    basis: a feasible and stable basis, which is list of column indices of
+       length (m,).
   """
   # card_basis
   pivot_steps = 0 
   total_card_time, total_ord_time = 0.0, 0.0
   while True:
-    if verbose and pivot_steps % 200 == 0:
+    if pivot_steps % 200 == 0 and verbose:
       print("current pivot step: #{0}".format(pivot_steps))
     start_time = time.time()
     pivot_1 = cardinal_pivot(A, b, card_basis, pivot_0)

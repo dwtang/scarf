@@ -161,7 +161,7 @@ class TestScarfClass(unittest.TestCase):
 
 class TestRandomGenAndSolve(unittest.TestCase):
   def run_test(self, S):
-    self.assertTrue(S.A.dtype == np.int32)
+    self.assertTrue(S.A.dtype == np.int8)
     self.assertTrue(S.U.dtype == np.int32)
     s_pref_list, c_pref_list, h_pref_list_from_U = utils.recover_pref_lists(
         num_single=S.num_single, num_couple=S.num_couple, 

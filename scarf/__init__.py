@@ -17,5 +17,5 @@ Example:
 __author__ = "Dengwang Tang"
 
 from scarf.instance import *
-from scarf.core import *
-from scarf import io
+from scarf.io import *
+from scarf.random import *
