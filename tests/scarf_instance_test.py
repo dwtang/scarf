@@ -84,83 +84,50 @@ class TestScarfClass(unittest.TestCase):
         hospital_cap=[2,3]
     )
 
-  def test_create_pair_list_single(self):
+  def test_pair_list(self):
     self.assertListEqual(
-        self.S.single_pair_list,
-        [(0, 0), (0, 1), (1, 1)]
+        self.S.pair_list,
+        [(0, 2), (1, 2), (0, 2, 2), (1, 2, 2), (2, 2, 2), (-1, 0), (-1, 1), # slack 
+         (0, 0), (0, 1), (1, 1),  # single
+         (0, 0, 0), (0, 0, 1), (1, 1, 0), (2, 1, 1), (2, 0, 0), (2, 0, 2)]  # couple
     )
 
-  def test_create_pair_list_couple(self):
-    self.assertListEqual(
-        self.S.couple_pair_list,
-        [(0, 0, 0), (0, 0, 1), (1, 1, 0), (2, 1, 1), (2, 0, 0), (2, 0, 2)]
-    )
+  def test_constraint_matrix(self):
+    A = self.S.full_A()
+    single_0_pair_list = [self.S.pair_list[i] for i in range(A.shape[1])
+                          if A[0, i] == 1]
+    self.assertListEqual(single_0_pair_list, [(0, 2), (0, 0), (0, 1)])
+    single_1_pair_list = [self.S.pair_list[i] for i in range(A.shape[1])
+                          if A[1, i] == 1]
+    self.assertListEqual(single_1_pair_list, [(1, 2), (1, 1)])
+    couple_0_pair_list = [self.S.pair_list[i] for i in range(A.shape[1])
+                          if A[2, i] == 1]
+    self.assertListEqual(couple_0_pair_list, [(0, 2, 2), (0, 0, 0), (0, 0, 1)])
+    couple_1_pair_list = [self.S.pair_list[i] for i in range(A.shape[1])
+                          if A[3, i] == 1]
+    self.assertListEqual(couple_1_pair_list, [(1, 2, 2), (1, 1, 0)])
+    couple_2_pair_list = [self.S.pair_list[i] for i in range(A.shape[1])
+                          if A[4, i] == 1]
+    self.assertListEqual(couple_2_pair_list, [(2, 2, 2), (2, 1, 1), (2, 0, 0), (2, 0, 2)])
+    hospital_0_pair_list_1 = [self.S.pair_list[i] for i in range(A.shape[1])
+                              if A[5, i] == 1]
+    self.assertListEqual(hospital_0_pair_list_1, [(-1, 0), (0, 0), (0, 0, 1), (1, 1, 0), (2, 0, 2)])
+    hospital_0_pair_list_2 = [self.S.pair_list[i] for i in range(A.shape[1])
+                              if A[5, i] == 2]
+    self.assertListEqual(hospital_0_pair_list_2, [(0, 0, 0), (2, 0, 0)])
+    hospital_1_pair_list_1 = [self.S.pair_list[i] for i in range(A.shape[1])
+                              if A[6, i] == 1]
+    self.assertListEqual(hospital_1_pair_list_1, [(-1, 1), (0, 1), (1, 1), (0, 0, 1), (1, 1, 0)])
+    hospital_1_pair_list_2 = [self.S.pair_list[i] for i in range(A.shape[1])
+                              if A[6, i] == 2]
+    self.assertListEqual(hospital_1_pair_list_2, [(2, 1, 1)])
 
-  def test_single_ps_utility_matrix(self):
-    U_s_ps = self.S._create_single_ps_utility_matrix().toarray()
-    self.assertGreater(0, U_s_ps[0][0])
-    self.assertGreater(0, U_s_ps[0][1])
-    self.assertGreater(0, U_s_ps[1][2])
-    self.assertGreater(U_s_ps[0][0], U_s_ps[0][1])
-
-  def test_couple_pc_utility_matrix(self):
-    U_c_pc, Vc = self.S._create_couple_pc_utility_matrix()
-    U_c_pc = U_c_pc.toarray()
-    self.assertGreater(0, U_c_pc[0][0])
-    self.assertGreater(0, U_c_pc[0][1])
-    self.assertGreater(0, U_c_pc[1][2])
-    self.assertGreater(0, U_c_pc[2][3])
-    self.assertGreater(0, U_c_pc[2][4])
-    self.assertGreater(0, U_c_pc[2][5])
-
-    self.assertGreater(U_c_pc[0][0], U_c_pc[0][1])
-    self.assertGreater(U_c_pc[2][3], U_c_pc[2][4])
-    self.assertGreater(U_c_pc[2][4], U_c_pc[2][5])
-
-    self.assertGreater(Vc[0], Vc[1])
-    self.assertGreater(Vc[3], Vc[4])
-    self.assertGreater(Vc[4], Vc[5])
-
-  def test_hospital_ps_utility_matrix(self):
-    single_scores = [[-3, -2], [-5, -6]]
-    U_h_ps = self.S._create_hospital_ps_utility_matrix(single_scores).toarray()
-    # single0:  hosp0 > hosp1, single1: hosp1
-    self.assertEqual(-3, U_h_ps[0][0])  # hosp0 rate single 0 
-    self.assertEqual(-5, U_h_ps[1][1])  # hosp1 rate single 0
-    self.assertEqual(-6, U_h_ps[1][2])  # hosp1 rate single 1
-
-  def test_hospital_0_pc_utility_matrix(self):
-    couple_scores = [[-30, -20, -40],  # h0
-                     [-50, -60, -70]]  # h1
-    Vc = np.array([-1, -2, -1, -1, -2, -3])
-    #  [(c0, h0, -), (c0, h0, -), (c1, h1, -), (c2, h1, -), (c2, h0, -), (c2, h0, -)]
-    U_h0_pc = self.S._create_hospital_k_pc_utility_matrix(couple_scores, Vc, 0).toarray()
-    self.assertEqual(-31, U_h0_pc[0][0]) # hosp0 rate couple 0 (member 0)
-    self.assertEqual(-32, U_h0_pc[0][1]) # hosp0 rate couple 0
-    self.assertEqual(-61, U_h0_pc[1][2]) # hosp1 rate couple 1
-    self.assertEqual(-71, U_h0_pc[1][3]) # hosp1 rate couple 2
-    self.assertEqual(-42, U_h0_pc[0][4]) # hosp0 rate couple 2
-    self.assertEqual(-43, U_h0_pc[0][5]) # hosp0 rate couple 2
-
-  def test_hospital_1_pc_utility_matrix(self):
-    couple_scores = [[-30, -20, -40],  # h0
-                     [-50, -60, -70]]  # h1
-    Vc = np.array([-1, -2, -1, -1, -2])
-    #  [(c0, -, h0), (c0, -, h1), (c1, -, h0), (c2, -, h1), (c2, -, h0), (c2, -, emp)]
-    U_h0_pc = self.S._create_hospital_k_pc_utility_matrix(couple_scores, Vc, 1).toarray()
-    self.assertEqual(-31, U_h0_pc[0][0]) # hosp0 rate couple 0 (member 1)
-    self.assertEqual(-52, U_h0_pc[1][1]) # hosp1 rate couple 0
-    self.assertEqual(-21, U_h0_pc[0][2]) # hosp0 rate couple 1
-    self.assertEqual(-71, U_h0_pc[1][3]) # hosp1 rate couple 2
-    self.assertEqual(-42, U_h0_pc[0][4]) # hosp0 rate couple 2
-    self.assertEqual(0, U_h0_pc[0][5])
-    self.assertEqual(0, U_h0_pc[1][5])
 
   def test_utility_matrix(self):
-    U = self.S.U.toarray()
+    U = self.S.full_U()
     single_pref_list, couple_pref_list, hospital_pref_list = utils.recover_pref_lists(
         num_single=2, num_couple=3, num_hospital=2, U=U,
-        pair_list=self.S.single_pair_list + self.S.couple_pair_list
+        pair_list=self.S.pair_list
     )
 
     # row minimum should be at slack variable
@@ -194,10 +161,12 @@ class TestScarfClass(unittest.TestCase):
 
 class TestRandomGenAndSolve(unittest.TestCase):
   def run_test(self, S):
+    self.assertTrue(S.A.dtype == np.int32)
+    self.assertTrue(S.U.dtype == np.int32)
     s_pref_list, c_pref_list, h_pref_list_from_U = utils.recover_pref_lists(
         num_single=S.num_single, num_couple=S.num_couple, 
         num_hospital=S.num_hospital, U=S.full_U(),
-        pair_list=S.single_pair_list + S.couple_pair_list
+        pair_list=S.pair_list
     )
     h_pref_list_from_pref = [
         utils.create_hospital_pref_on_pairs(
@@ -217,7 +186,7 @@ class TestRandomGenAndSolve(unittest.TestCase):
   def run_solve(self, S):
     basis = scarf.solve(S)
     self.assertTrue(utils.check_stable(S.full_U(), basis))
-    self.assertTrue(utils.check_feasible(S.A, basis, S.b))
+    self.assertTrue(utils.check_feasible(S.full_A(), basis, S.full_b()))
 
   def test_small(self):
     S = scarf.gen_random_instance(
@@ -229,6 +198,7 @@ class TestRandomGenAndSolve(unittest.TestCase):
   def test_0_couple(self):
     S = scarf.gen_random_instance(
         num_single=2, num_couple=0, num_hospital=2)
+    
     self.run_test(S)
 
   def test_0_single(self):

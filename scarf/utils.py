@@ -23,11 +23,8 @@ def recover_pref_lists(num_single, num_couple, num_hospital, U,
   """Recover preference list from utility matrix."""
   assert(U.shape[0] == num_single + num_couple + num_hospital)
   num_hospital_pair = (num_hospital + 1) ** 2 - 1
-  assert(U.shape[1] == U.shape[0] + len(pair_list))
+  assert(U.shape[1] == len(pair_list))
   # Sort decend by negating the array
-  pair_list = [(s, num_hospital) for s in range(num_single)] + \
-              [(c, num_hospital, num_hospital) for c in range(num_couple)] + \
-              [(-1, h) for h in range(num_hospital)] + pair_list
   orders_U = np.argsort(-U)
   single_pref_list, couple_pref_list, hospital_pref_list = [], [], []
   for s in range(num_single):

@@ -198,12 +198,11 @@ def _scarf_pivot(A, U, b, card_basis, ord_basis, pivot_0,
     if pivot_0 == 0:
       break
     pivot_steps += 1
-  # x = np.zeros(shape=(A.shape[1]))
-  # x[card_basis] = b
+  
   print("Pivoted for {0} steps.".format(pivot_steps))
   print("Avg cardinal Pivot: {0:.3f}ms.".format(1e3 * total_card_time / pivot_steps))
   print("Avg Ordinal Pivot: {0:.3f}ms.".format(1e3 * total_ord_time / pivot_steps))
-  return b, card_basis
+  return card_basis
 
 
 def scarf_solve(A, U, b, verbose=False):
@@ -254,8 +253,11 @@ def scarf_solve(A, U, b, verbose=False):
   )
   
   start_time = time.time()
-  b, basis = _scarf_pivot(A, U, b, card_basis, ord_basis, pivot_0, 
+  basis = _scarf_pivot(A, U, b, card_basis, ord_basis, pivot_0, 
                       rowmin_locations, U_dom, verbose)
   end_time = time.time()
   print("Pivot for {0:.3f}s.".format(end_time - start_time))
-  return b, basis
+
+  x = np.zeros(shape=(A.shape[1]))
+  alloc = np.linalg.solve(A[:, card_basis], b)
+  return alloc, basis

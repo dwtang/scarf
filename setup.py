@@ -11,7 +11,7 @@ setuptools.setup(
     description="A package for stable matching problems with couples",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/somewhere",
+    url="https://github.com/dwtang/scarf/",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",

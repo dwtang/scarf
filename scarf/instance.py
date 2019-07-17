@@ -6,17 +6,13 @@ Dengwang Tang <dwtang@umich.edu>
 """
 
 import numpy as np
-import json
-import sys
-import time
 from scipy import sparse as sp
-from scipy import io as sio
 
 import scarf.core
 
 __all__ = [
-    "pref_list_2_score_list", "ScarfInstance", "read_excel", 
-    "read_json", "gen_random_instance", "solve"
+    "pref_list_2_score_list", "ScarfInstance",
+    "gen_random_instance", "solve"
 ]
 
 def _assert_unique(li):
@@ -165,230 +161,186 @@ class ScarfInstance():
     # Complete sanity check before proceeding
     sanity_check(self.num_single, self.num_couple, self.num_hospital,
                  single_pref_list, couple_pref_list, hospital_pref_list)
-    self.num_hospital_pair = (self.num_hospital + 1) ** 2 - 1
+    self.num_applicant = self.num_single + 2 * self.num_couple
+    self._nhp = (self.num_hospital + 1) ** 2 - 1
+
+    # store the data
     self.single_pref_list = single_pref_list
     self.couple_pref_list = couple_pref_list
     self.hospital_pref_list = hospital_pref_list
+    self.hospital_cap = hospital_cap
 
-    self.create_pair_list()  # creates single_pair_list and couple_pair_list
-    self.create_constraint_matrix()  # creates self.A
-    self.create_utility_matrix()  # creates self.U
-    self.create_rhs_vector(hospital_cap)  # creates self.b
+    # creates mapping from matrix index to allocation plan
+    self._setup_pair_list()
+    self.A, self.U = self._create_matrices()
 
-  def create_pair_list(self):
+  def _setup_pair_list(self):
     """Creates the list of pairs.
 
     Creates a list of doctor(s)-hospital(s) pairs (i.e. (s, h), (c, h0, h1))
     which indicates represents the column of constraint and utility matrix.
     """
-    self.single_pair_list = []
+    slack_list = [(s, self.num_hospital) for s in range(self.num_single)]
+    slack_list += [(c, self.num_hospital, self.num_hospital) 
+                   for c in range(self.num_couple)]
+    slack_list += [(-1, h) for h in range(self.num_hospital)]
+    single_pair_list = []
     for s in range(self.num_single):
-      self.single_pair_list += [(s, h) for h in self.single_pref_list[s]]
-    self.couple_pair_list = []
+      single_pair_list += [(s, h) for h in self.single_pref_list[s]]
+    couple_pair_list = []
     for c in range(self.num_couple):
-      self.couple_pair_list += [(c, h0, h1) for h0, h1 
-                                in self.couple_pref_list[c]]
+      couple_pair_list += [(c, h0, h1) for h0, h1 in self.couple_pref_list[c]]
+    self.pair_list = slack_list + single_pair_list + couple_pair_list
+    self._nsl, self._nps = len(slack_list), len(single_pair_list), 
+    self._npc = len(couple_pair_list)
 
-  def create_constraint_matrix(self):
-    """Create constraint matrix A."""
-    AL = np.eye(self.num_single + self.num_couple + self.num_hospital,
-                dtype=np.int32)
-    A_s_ps = np.repeat(np.eye(self.num_single, dtype=np.int32),
-                       self.num_hospital, axis=1)
-    A_s_pc = np.zeros(
-      (self.num_single, self.num_couple * self.num_hospital_pair),
-      dtype=np.int32
-    )
-    
-    A_c_ps = np.zeros(
-      (self.num_couple, self.num_single * self.num_hospital),
-      dtype=np.int32
-    )
-    A_c_pc = np.repeat(np.eye(self.num_couple, dtype=np.int32), 
-                       self.num_hospital_pair, axis=1)
-    
-    A_h_ps = np.tile(np.eye(self.num_hospital, dtype=np.int32),
-                     (1, self.num_single))
-    A_h_pc_first_member = np.concatenate(
-        (np.repeat(
-            np.eye(self.num_hospital, dtype=np.int32), 
-            self.num_hospital + 1, axis=1
-        ),
-        np.zeros((self.num_hospital, self.num_hospital), dtype=np.int32)),
-        axis=1
-    )  # [P0, P1, P2, ..., P{num_hospital-1}, 0s]
-    A_h_pc_second_member = np.tile(
-        np.concatenate((np.eye(self.num_hospital, dtype=np.int32), 
-                       np.zeros((self.num_hospital, 1), dtype=np.int32)),
-                       axis=1),
-        (1, self.num_hospital + 1)
-    )  # [[D, 0], [D, 0], ..., [D, 0]]
-    A_h_pc_second_member = A_h_pc_second_member[:, :-1]  # remove last column
-    A_h_pc_miniblock = A_h_pc_first_member + A_h_pc_second_member
-    A_h_pc = np.tile(A_h_pc_miniblock, (1, self.num_couple))
+  def slack_list(self):
+    return self.pair_list[:self._nsl]
 
-    A_ps = np.concatenate((A_s_ps, A_c_ps, A_h_ps), axis=0)
-    A_pc = np.concatenate((A_s_pc, A_c_pc, A_h_pc), axis=0)
+  def single_pair_list(self, j=-1):
+    if j < 0:
+      return self.pair_list[self._nsl: self._nsl + self._nps]
+    else:
+      return self.pair_list[self._nsl + j]
 
-    single_indices = []
-    for s in range(self.num_single):
-      single_indices += _single_pair_to_column_idx(
-          self.num_hospital, s, self.single_pref_list[s])
-    A_ps = A_ps[:, single_indices]
-    
-    couple_indices = []
-    for c in range(self.num_couple):
-      couple_indices += _couple_pair_to_column_idx(
-          self.num_hospital, c, self.couple_pref_list[c])
-    A_pc = A_pc[:, couple_indices]
+  def couple_pair_list(self, j=-1):
+    if j < 0:
+      return self.pair_list[self._nsl + self._nps:]
+    else:
+      return self.pair_list[self._nsl + self._nps + j]
 
-    self.A = np.concatenate((AL, A_ps, A_pc), axis=1)
-
-  def _create_single_ps_utility_matrix(self):
+  def _create_single_ps_matrices(self):
     # Construct single - (single, hospital) utility matrix.
-    I = [s for s, h in self.single_pair_list]
-    J = list(range(len(self.single_pair_list)))
+    I = [s for s, h in self.single_pair_list()]
+    J = range(self._nps)
     # For each single, assign score from high to low.
+    W = np.ones(self._nps, dtype=np.int8)  # for A
     if self.num_single > 0:
       V = np.concatenate([-np.arange(len(self.single_pref_list[r])) - 1
-                          for r in range(self.num_single)])
+                          for r in range(self.num_single)])  # for U
     else:
       V = np.arange(0)
-    return sp.csc_matrix((V, (I, J)), shape=(self.num_single, len(I)),
-                         dtype=np.int32)
+    A_s_ps = sp.coo_matrix(
+        (W, (I, J)),  shape=(self.num_single, self._nps), dtype=np.int8)
+    U_s_ps = sp.coo_matrix(
+        (V, (I, J)), shape=(self.num_single, self._nps), dtype=np.int32)
+    return A_s_ps, U_s_ps
 
-  def _create_couple_pc_utility_matrix(self):
+  def _create_couple_pc_matrices(self):
     """Create couple - (couple, hospitals) utility matrix.
 
     Returns:
       1. The matrix
       2. A 1-D numpy array of scores couples assigned to pairs, for tie breaking.
     """
-    I = [c for c, h0, h1 in self.couple_pair_list]
-    J = list(range(len(self.couple_pair_list)))
+    I = [c for c, h0, h1 in self.couple_pair_list()]
+    J = range(self._npc)
+    W = np.ones(self._npc, dtype=np.int8)
     # For each couple, assign score from high to low.
     if self.num_couple > 0:
       V = np.concatenate([-np.arange(len(self.couple_pref_list[r])) - 1
                           for r in range(self.num_couple)])
     else:
       V = np.arange(0)
-    U_c_pc = sp.csc_matrix((V, (I, J)), shape=(self.num_couple, len(I)),
-                           dtype=np.int32)
-    return U_c_pc, V + 1
+    A_c_pc = sp.coo_matrix(
+        (W, (I, J)), shape=(self.num_couple, self._npc), dtype=np.int8)
+    U_c_pc = sp.coo_matrix(
+        (V, (I, J)), shape=(self.num_couple, self._npc), dtype=np.int32)
+    return A_c_pc, U_c_pc, V + 1
 
-  def _create_hospital_ps_utility_matrix(self, single_scores):
-    I = [h for s, h in self.single_pair_list]
-    J = list(range(len(self.single_pair_list)))
+  def _create_hospital_ps_matrices(self, single_scores):
+    I = [h for s, h in self.single_pair_list()]
+    J = range(self._nps)
+    W = np.ones(self._nps, dtype=np.int8)
     # The utility value is the score hospital assigned to single.
-    V = [single_scores[h][s] for s, h in self.single_pair_list]
-
+    V = [single_scores[h][s] for s, h in self.single_pair_list()]
     # Construct the matrix
-    return sp.csc_matrix((V, (I, J)), shape=(self.num_hospital, len(I)),
-                         dtype=np.int32)
+    A_h_ps = sp.coo_matrix(
+        (W, (I, J)), shape=(self.num_hospital, self._nps), dtype=np.int8)
+    U_h_ps = sp.coo_matrix(
+        (V, (I, J)), shape=(self.num_hospital, self._nps), dtype=np.int32)
+    return A_h_ps, U_h_ps
 
-  def _create_hospital_k_pc_utility_matrix(self, couple_scores, V_c_pc, k):
-    # Construct hospital - (couple, hospitals) utility matrix separately.
-    # First consider first member of couple.
-    Ik = [p[k+1] for p in self.couple_pair_list if p[k+1] < self.num_hospital]
-    Jk = [j for j in range(len(self.couple_pair_list))
-          if self.couple_pair_list[j][k+1] < self.num_hospital]
+  def _create_hospital_k_pc_matrices(self, couple_scores, V_c_pc, k):
+    Ik = [p[k+1] for p in self.couple_pair_list() if p[k+1] < self.num_hospital]
+    Jk = [j for j in range(self._npc)
+          if self.couple_pair_list(j)[k+1] < self.num_hospital]
+    Wk = [1 for j in range(self._npc)
+          if self.couple_pair_list(j)[k+1] < self.num_hospital]
     # The utility value is the score hospital assigned to member 0 of couple.
     Vk = np.array([couple_scores[p[k+1]][p[0]]
-                   for p in self.couple_pair_list 
+                   for p in self.couple_pair_list()
                    if p[k+1] < self.num_hospital]) + V_c_pc[Jk]
           # adding couple's utility for tie breaking.
-    return sp.csc_matrix(
-        (Vk, (Ik, Jk)), shape=(self.num_hospital, len(self.couple_pair_list)),
-        dtype=np.int32)
+    A_hk_pc = sp.coo_matrix(
+        (Wk, (Ik, Jk)), shape=(self.num_hospital, self._npc), dtype=np.int8)
+    U_hk_pc = sp.coo_matrix(
+        (Vk, (Ik, Jk)), shape=(self.num_hospital, self._npc), dtype=np.int32)
+    return A_hk_pc, U_hk_pc
 
-  def create_utility_matrix(self):
-    """Create utility matrix U"""
+  def _create_matrices(self):
+    """Create constraint and utility matrices for scarf pivoting."""
     
-    U_s_ps = self._create_single_ps_utility_matrix()
-    U_c_ps = sp.csc_matrix(
-        (self.num_couple, U_s_ps.get_shape()[1]), dtype=np.int32)
-    U_c_pc, V_c_pc = self._create_couple_pc_utility_matrix()
-    U_s_pc = sp.csc_matrix(
-        (self.num_single, U_c_pc.get_shape()[1]), dtype=np.int32)
+    A_s_ps, U_s_ps = self._create_single_ps_matrices()
+    A_s_pc = U_s_pc = sp.coo_matrix(
+        (self.num_single, self._npc), dtype=np.int8)
+    A_c_ps = U_c_ps = sp.coo_matrix(
+        (self.num_couple, self._nps), dtype=np.int8)
+    A_c_pc, U_c_pc, V_c_pc = self._create_couple_pc_matrices()
 
     single_scores, couple_0_scores, couple_1_scores = pref_list_2_score_list(
         self.num_single, self.num_couple, self.num_hospital,
         self.hospital_pref_list)
-    U_h_ps = self._create_hospital_ps_utility_matrix(single_scores)
-    U_h0_pc = self._create_hospital_k_pc_utility_matrix(
+    A_h_ps, U_h_ps = self._create_hospital_ps_matrices(single_scores)
+    A_h0_pc, U_h0_pc = self._create_hospital_k_pc_matrices(
         couple_0_scores, V_c_pc, 0)
-    U_h1_pc = self._create_hospital_k_pc_utility_matrix(
+    A_h1_pc, U_h1_pc = self._create_hospital_k_pc_matrices(
         couple_1_scores, V_c_pc, 1)
 
+    A_h_pc = A_h0_pc + A_h1_pc
     U_h_pc = U_h0_pc.minimum(U_h1_pc)  # Take the worse of the two members
 
+    AL = sp.eye(self._nsl, dtype=np.int8)
     # Create slack variable utility
-    min_u = - (self.num_single + 2 * self.num_couple
-        ) * self.num_hospital_pair - 1
+    min_u = - self.num_applicant * self._nhp  # the minimum U can achieve
     UL = sp.diags(
         [-self.num_hospital - 1 for _ in range(self.num_single)] + 
-        [-self.num_hospital_pair - 1 for _ in range(self.num_couple)] + 
-        [min_u for _ in range(self.num_hospital)], dtype=np.int32
+        [-self._nhp - 1 for _ in range(self.num_couple)] + 
+        [min_u - 1 for _ in range(self.num_hospital)], dtype=np.int32
     )
 
-    self.U = sp.hstack([UL, sp.vstack(
+    A = sp.hstack([AL, sp.vstack(
+        [
+            sp.hstack([A_s_ps, A_s_pc]),
+            sp.hstack([A_c_ps, A_c_pc]),
+            sp.hstack([A_h_ps, A_h_pc])
+        ])
+    ])
+    U = sp.hstack([UL, sp.vstack(
         [
             sp.hstack([U_s_ps, U_s_pc]),
             sp.hstack([U_c_ps, U_c_pc]),
             sp.hstack([U_h_ps, U_h_pc])
         ])
     ])
+    return A, U
 
-  def create_rhs_vector(self, hospital_cap):
-    self.b = np.concatenate(
-        ([1] * (self.num_single + self.num_couple), hospital_cap))
-
-  def savemat(self, filename):
-    sio.savemat(
-          filename,
-          {
-              "A": self.A,
-              "U": self.U,
-              "b": np.array([self.b]).T
-          }
-    )
+  def full_A(self):
+    return self.A.toarray()
 
   def full_U(self):
     return self.U.toarray()
 
+  def full_b(self):
+    return np.concatenate(
+        (np.ones(self.num_single + self.num_couple, dtype=np.int32),
+         np.array(self.hospital_cap, dtype=np.int32)))
 
-def read_excel(file):
-  """Obtain matching instance from excel"""
-  raise NotImplementedError("Developer has been lazy.")
-
-
-def _element_check(obj):
-  if isinstance(obj, list):
-    return tuple(obj)
-  elif isinstance(obj, int):
-    return obj
-  else:
-    raise TypeError("Wrong!")
-
-
-def read_json(file):
-  """Read instance from a json file of preferences."""
-  with open(file) as f:
-    all_fields = json.load(f)
-  single_pref_list = all_fields["single_pref_list"]
-  couple_pref_list = [[_element_check(hp) for hp in li] 
-                      for li in all_fields["couple_pref_list"]]
-  hospital_pref_list = [[_element_check(i) for i in li]
-                        for li in all_fields["hospital_pref_list"]]
-  if len(hospital_pref_list) == 1:
-    hospital_pref_list = hospital_pref_list[0]
-  hospital_cap = all_fields["hospital_cap"]
-  return ScarfInstance(
-      single_pref_list=single_pref_list,
-      couple_pref_list=couple_pref_list,
-      hospital_pref_list=hospital_pref_list,
-      hospital_cap=hospital_cap
-  )
+  def __repr__(self):
+    s = "<ScarfInstance with {s} singles, {c} couples, and {h} hospitals>".format(
+        s=self.num_single, c=self.num_couple, h=self.num_hospital
+    )
+    return s
 
 
 def id_2_tuple(num_single, idx):
@@ -399,7 +351,7 @@ def id_2_tuple(num_single, idx):
     return (couple_idx // 2, couple_idx % 2)
 
 
-def gen_random_instance(num_single, num_couple, num_hospital, filename=None):
+def gen_random_instance(num_single, num_couple, num_hospital):
   """Generate a random instance."""
   num_applicant = num_single + 2 * num_couple
   single_pref_list = np.argsort(
@@ -430,16 +382,7 @@ def gen_random_instance(num_single, num_couple, num_hospital, filename=None):
   for h in range(num_hospital):
     hospital_cap.append(int(sum(hosp_seat == h) + 1))
   # print(couple_pref_list)
-  if filename:
-    with open(filename, mode="w") as g:
-      json.dump(
-          {
-              "single_pref_list": single_pref_list,
-              "couple_pref_list": couple_pref_list,
-              "hospital_pref_list": hospital_pref_list,
-              "hospital_cap": hospital_cap
-          }, g, indent=4
-      )
+  
   return ScarfInstance(
       single_pref_list=single_pref_list,
       couple_pref_list=couple_pref_list,
@@ -450,11 +393,10 @@ def gen_random_instance(num_single, num_couple, num_hospital, filename=None):
 
 def solve(instance, verbose=False):
   """Solve a stable matching instance with Scarf's algorithm."""
-  _, basis = scarf.core.scarf_solve(
-      A=instance.A, U=instance.full_U(), b=instance.b, verbose=verbose)
+  alloc, basis = scarf.core.scarf_solve(
+      A=instance.full_A(),
+      U=instance.full_U(),
+      b=instance.full_b(),
+      verbose=verbose
+  )
   return basis
-
-
-if __name__ == '__main__':
-  S = read_json(sys.argv[1])
-  b, basis = solve(S)
