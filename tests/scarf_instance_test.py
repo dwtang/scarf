@@ -70,7 +70,7 @@ class TestScarfClass(unittest.TestCase):
         "couple": [
             [(0, 0), (0, 1)],
             [(1, 0)],
-            [(1, 1), (0, 0), (0, 2)]
+            [(1, 1), (0, 0), (0, -1)]
         ],
         "hospital": [
             [1, (0, 1), 0, (1, 0), (2, 1), (2, 0), (1, 1), (0, 0)],
@@ -87,31 +87,31 @@ class TestScarfClass(unittest.TestCase):
   def test_pair_list(self):
     self.assertListEqual(
         self.S.pair_list,
-        [(0, 2), (1, 2), (0, 2, 2), (1, 2, 2), (2, 2, 2), (-1, 0), (-1, 1), # slack 
+        [(0, -1), (1, -1), (0, -1, -1), (1, -1, -1), (2, -1, -1), (-1, 0), (-1, 1), # slack 
          (0, 0), (0, 1), (1, 1),  # single
-         (0, 0, 0), (0, 0, 1), (1, 1, 0), (2, 1, 1), (2, 0, 0), (2, 0, 2)]  # couple
+         (0, 0, 0), (0, 0, 1), (1, 1, 0), (2, 1, 1), (2, 0, 0), (2, 0, -1)]  # couple
     )
 
   def test_constraint_matrix(self):
     A = self.S.full_A()
     single_0_pair_list = [self.S.pair_list[i] for i in range(A.shape[1])
                           if A[0, i] == 1]
-    self.assertListEqual(single_0_pair_list, [(0, 2), (0, 0), (0, 1)])
+    self.assertListEqual(single_0_pair_list, [(0, -1), (0, 0), (0, 1)])
     single_1_pair_list = [self.S.pair_list[i] for i in range(A.shape[1])
                           if A[1, i] == 1]
-    self.assertListEqual(single_1_pair_list, [(1, 2), (1, 1)])
+    self.assertListEqual(single_1_pair_list, [(1, -1), (1, 1)])
     couple_0_pair_list = [self.S.pair_list[i] for i in range(A.shape[1])
                           if A[2, i] == 1]
-    self.assertListEqual(couple_0_pair_list, [(0, 2, 2), (0, 0, 0), (0, 0, 1)])
+    self.assertListEqual(couple_0_pair_list, [(0, -1, -1), (0, 0, 0), (0, 0, 1)])
     couple_1_pair_list = [self.S.pair_list[i] for i in range(A.shape[1])
                           if A[3, i] == 1]
-    self.assertListEqual(couple_1_pair_list, [(1, 2, 2), (1, 1, 0)])
+    self.assertListEqual(couple_1_pair_list, [(1, -1, -1), (1, 1, 0)])
     couple_2_pair_list = [self.S.pair_list[i] for i in range(A.shape[1])
                           if A[4, i] == 1]
-    self.assertListEqual(couple_2_pair_list, [(2, 2, 2), (2, 1, 1), (2, 0, 0), (2, 0, 2)])
+    self.assertListEqual(couple_2_pair_list, [(2, -1, -1), (2, 1, 1), (2, 0, 0), (2, 0, -1)])
     hospital_0_pair_list_1 = [self.S.pair_list[i] for i in range(A.shape[1])
                               if A[5, i] == 1]
-    self.assertListEqual(hospital_0_pair_list_1, [(-1, 0), (0, 0), (0, 0, 1), (1, 1, 0), (2, 0, 2)])
+    self.assertListEqual(hospital_0_pair_list_1, [(-1, 0), (0, 0), (0, 0, 1), (1, 1, 0), (2, 0, -1)])
     hospital_0_pair_list_2 = [self.S.pair_list[i] for i in range(A.shape[1])
                               if A[5, i] == 2]
     self.assertListEqual(hospital_0_pair_list_2, [(0, 0, 0), (2, 0, 0)])

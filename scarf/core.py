@@ -24,7 +24,7 @@ def _update_U_dom_row(U_dom, U, r, new_rowmin_col):
     U_dom[r, :] = U[r, :] <= new_rowmin
 
 
-@nb.njit('void(float32[:,:], float32[:], int64, int64, int64[:])', parallel=True)
+@nb.njit('void(float64[:,:], float64[:], int64, int64, int64[:])', parallel=True)
 def _update_A_b(A, b, row, pivot, oprows):
   """Subtract a multiple of the row A[row, :] from all other rows."""
   for r0 in nb.prange(len(oprows)):
@@ -34,7 +34,7 @@ def _update_A_b(A, b, row, pivot, oprows):
       A[r, :] -= A[r, pivot] * A[row, :]
 
 
-@nb.njit('void(float32[:,:], float32[:], int64, int64)', parallel=True)
+@nb.njit('void(float64[:,:], float64[:], int64, int64)', parallel=True)
 def _update_A_b_plain(A, b, row, pivot):
   """Subtract a multiple of the row A[row, :] from all other rows."""
   for r in nb.prange(len(b)):
@@ -123,9 +123,7 @@ def ordinal_pivot(U, ord_basis, pivot, rowmin_locations, U_dom):
   return new_pivot
 
 
-# @nb.jit
-def _scarf_pivot(A, U, b, card_basis, ord_basis, pivot_0, 
-                 rowmin_locations, U_dom, verbose=False):
+def _scarf_pivot(A, U, b, verbose=False):
   """Scarf Algorithm Implementation.
 
   Find a "fractionally stable" extreme point of the polytope {x >= 0 : A x = b}.
@@ -144,6 +142,26 @@ def _scarf_pivot(A, U, b, card_basis, ord_basis, pivot_0,
     basis: a feasible and stable basis, which is list of column indices of
        length (m,).
   """
+  num_rows = len(b)
+  A = A.astype(np.float64)
+  b = b.astype(np.float64)
+  # perturbation for cardinal pivot assumption to hold
+  b -= np.linspace(start=1e-6, stop=2e-6, num=num_rows, dtype=np.float64)
+  # initialize cardinal and ordinal basis, as well as book keeping variables
+  card_basis = list(range(num_rows))
+  pivot_0 = np.argmax(U[0, num_rows:]) + num_rows
+  ord_basis = list(range(1, num_rows)) + [pivot_0]
+
+  # initialize the location (row) of rowmin for each column in the ordinal basis
+  rowmin_locations = list(range(1, num_rows)) + [0]
+  # initialize the domination matrix
+  U_dom = np.concatenate(
+    (np.diag([True] * num_rows), 
+     np.tile(np.array([[True] + [False] * (num_rows - 1)]).T, 
+             A.shape[1] - num_rows)),
+    axis=1
+  )
+
   # card_basis
   pivot_steps = 0 
   total_card_time, total_ord_time = 0.0, 0.0
@@ -155,25 +173,18 @@ def _scarf_pivot(A, U, b, card_basis, ord_basis, pivot_0,
     end_time = time.time()
     duration = end_time - start_time
     total_card_time += duration
-    # print("cardinal pivot duration: {0:.6f}ms".format(1e3 * duration))
-    # print("{0} replaces {1} in cardinal basis".format(pivot_0, pivot_1))
     if pivot_1 == 0:
       break
     start_time = time.time()
     pivot_0 = ordinal_pivot(U, ord_basis, pivot_1, rowmin_locations, U_dom)
     end_time = time.time()
     duration = end_time - start_time
-    # print("ordinal pivot duration: {0:.6f}ms".format(1e3 * duration))
     total_ord_time += duration
-    # print("{0} replaces {1} in ordinal basis".format(pivot_0, pivot_1))
     if pivot_0 == 0:
       break
     pivot_steps += 1
   
-  print("Pivoted for {0} steps.".format(pivot_steps))
-  print("Avg cardinal Pivot: {0:.3f}ms.".format(1e3 * total_card_time / pivot_steps))
-  print("Avg Ordinal Pivot: {0:.3f}ms.".format(1e3 * total_ord_time / pivot_steps))
-  return card_basis
+  return card_basis, pivot_steps, total_card_time, total_ord_time
 
 
 def scarf_solve(A, U, b, verbose=False):
@@ -201,34 +212,18 @@ def scarf_solve(A, U, b, verbose=False):
   assert(np.all(A[:,:A.shape[0]] == np.eye(A.shape[0], dtype=np.int32)))
   # Check that slack variable of U has lowest utility
   assert(np.all(np.argmin(U, axis=1) == np.arange(A.shape[0])))
-
-  num_rows = len(b)
-  A = A.astype(np.float32)
-  b = b.astype(np.float32)
-  # perturbation for cardinal pivot assumption to hold
-  b -= np.linspace(start=1e-6, stop=2e-6, num=num_rows)
-  # initialize cardinal and ordinal basis, as well as book keeping variables
-  # card_basis = np.arange(num_rows)
-  card_basis = list(range(num_rows))
-  pivot_0 = np.argmax(U[0, num_rows:]) + num_rows
-  ord_basis = list(range(1, num_rows)) + [pivot_0]
-
-  # initialize the location (row) of rowmin for each column in the ordinal basis
-  rowmin_locations = list(range(1, num_rows)) + [0]
-  # initialize the domination matrix
-  U_dom = np.concatenate(
-    (np.diag([True] * num_rows), 
-     np.tile(np.array([[True] + [False] * (num_rows - 1)]).T, 
-             A.shape[1] - num_rows)),
-    axis=1
-  )
   
   start_time = time.time()
-  basis = _scarf_pivot(A, U, b, card_basis, ord_basis, pivot_0, 
-                      rowmin_locations, U_dom, verbose)
+  basis, pivot_steps, total_card_time, total_ord_time = _scarf_pivot(
+      A, U, b, verbose)  # A, b are kept same after call.
   end_time = time.time()
-  print("Pivot for {0:.3f}s.".format(end_time - start_time))
+  if verbose:
+    print("Pivoted for {0} steps in {1:.3f}s.".format(
+        pivot_steps, end_time - start_time))
+    print("Avg cardinal Pivot: {0:.3f}ms.".format(
+        1e3 * total_card_time / pivot_steps))
+    print("Avg Ordinal Pivot: {0:.3f}ms.".format(
+        1e3 * total_ord_time / pivot_steps))
 
-  x = np.zeros(shape=(A.shape[1]))
-  alloc = np.linalg.solve(A[:, card_basis], b)
-  return alloc, basis
+  alloc = np.linalg.solve(A[:, basis], b)
+  return alloc, basis, pivot_steps

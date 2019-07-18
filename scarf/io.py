@@ -12,6 +12,12 @@ __all__ = ["save_json", "load_json", "save_mat", "load_excel",
 
 
 def save_json(ins, filename):
+  """Save ScarfInstance to json format.
+
+  Args:
+    ins: a `ScarfInstance` object.
+    filename: output file name.
+  """
   with open(filename, mode="w") as g:
     json.dump(
         {
@@ -33,7 +39,13 @@ def _element_check(obj):
 
 
 def load_json(filename):
-  """Read instance from a json file of preferences."""
+  """Read instance from a json file of preferences.
+
+  Args:
+    filename: input json file name.
+  Returns:
+    A `ScarfInstance` object.
+  """
   with open(filename) as f:
     all_fields = json.load(f)
   single_pref_list = all_fields["single_pref_list"]
@@ -53,6 +65,15 @@ def load_json(filename):
 
 
 def save_mat(ins, filename):
+  """Save part of the instance to MATLAB style .mat file.
+
+  Save the constraint matrix, utility matrix, and right hand side vector into a
+  '.mat' file for use in MATLAB.
+
+  Args:
+    ins: A `ScarfInstance`.
+    filename: output filename with or without '.mat' extension.
+  """
   sio.savemat(
         filename,
         {
@@ -63,12 +84,18 @@ def save_mat(ins, filename):
   )
 
 
-def load_excel(file):
-  """Obtain matching instance from excel"""
+def load_excel(filename):
+  """Obtain matching instance from excel."""
   raise NotImplementedError("Developer has been lazy.")
 
 
 def save_pickle(ins, filename):
+  """Save ScarfInstance to python's pickle format.
+
+  Args:
+    ins: a `ScarfInstance`.
+    filename: output file name.
+  """
   with open(filename, "wb") as g:
     pickle.dump(
         {
@@ -81,6 +108,17 @@ def save_pickle(ins, filename):
 
 
 def load_pickle(filename):
+  """Read instance from a python pickle file of preferences.
+
+  Warning: As official python3 documentation has suggested, pickle format is NOT
+  secure against adversarial attack. Please make sure you trust the source of the
+  data file.
+
+  Args:
+    filename: json file name.
+  Returns:
+    A `ScarfInstance` object.
+  """
   with open(filename, "rb") as f:
     all_data = pickle.load(f)
   return scarf.instance.ScarfInstance(

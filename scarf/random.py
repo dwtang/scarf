@@ -21,7 +21,7 @@ def gen_random_instance(num_single, num_couple, num_hospital):
   single_pref_list = np.argsort(
       np.random.rand(num_single, num_hospital)
   ).tolist()
-  num_hospital_pair = num_hospital ** 2 + 2 * num_hospital
+  num_hospital_pair = (num_hospital + 1) ** 2 - 1
   couple_pref_seed = np.random.rand(num_couple, num_hospital_pair)
   couple_pref_seed += np.array(
       [(pid // (num_hospital + 1) == num_hospital) or 
@@ -29,8 +29,10 @@ def gen_random_instance(num_single, num_couple, num_hospital):
        for pid in range(num_hospital_pair)], dtype=np.float64)
        # plans with unemployment is are ranked lower
   couple_pref_list = np.argsort(couple_pref_seed).tolist()
+  wrap = lambda x: x if x < num_hospital else -1
   couple_pref_list = [
-      [(pid // (num_hospital + 1), pid % (num_hospital + 1)) for pid in li]
+      [(wrap(pid // (num_hospital + 1)), 
+      	wrap(pid % (num_hospital + 1))) for pid in li]
       for li in couple_pref_list
   ]
   hospital_pref_list = np.argsort(
