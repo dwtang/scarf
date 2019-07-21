@@ -184,9 +184,14 @@ class TestRandomGenAndSolve(unittest.TestCase):
       self.assertListEqual(h_pref_list_from_U[h], h_pref_list_from_pref[h])
 
   def run_solve(self, S):
-    basis = scarf.solve(S)
-    self.assertTrue(utils.check_stable(S.full_U(), basis))
-    self.assertTrue(utils.check_feasible(S.full_A(), basis, S.full_b()))
+    sol = scarf.solve(S)
+    self.assertTrue(utils.check_stable(S.full_U(), sol.basis))
+    self.assertTrue(utils.check_feasible(S.full_A(), sol.basis, S.full_b()))
+    self.assertTrue(np.all(np.round(S.A.dot(sol.x).T.toarray()[0], 6) == S.full_b()))
+    p = S.pair_list[sol.basis[0]]
+    self.assertTrue(sol[p] == sol.x[sol.basis[0]])
+    p = S.pair_list[sol.basis[1]]
+    self.assertTrue(sol[p] == sol.x[sol.basis[1]])
 
   def test_small(self):
     S = scarf.gen_random_instance(

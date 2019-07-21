@@ -321,34 +321,83 @@ class ScarfInstance():
 
 
 def _is_int(vec, tol=1e-6):
-  return np.max(np.abs(vec - np.round(vec))) < tol
+  return np.max(np.abs(vec - np.round(vec))) <= tol
 
 
 def _s_select(pair_list, s):
   return [p for p in pair_list if len(p) == 2 and p[0] == s and p[1] >= 0]
 
 
+def _is_c_related(p, c):
+  return len(p) == 3 and p[0] == c and (p[1] >= 0 or p[2] >= 0)
+
+
 def _c_select(pair_list, c):
-  return [p for p in pair_list if len(p) == 3 and p[0] == c and (p[1] >= 0 or p[2] >= 0)]
+  return [p for p in pair_list if _is_c_related(p, c)]
+
+
+def _is_h_related(p, h):
+  return p[1] == h or p[-1] == h 
+
+
+def _h_select(pair_list, h):
+  return [p for p in pair_list if _is_h_related(p, h)]
+
+
+def _get_member(p, h, x):
+  if len(p) == 2:
+    return [(p[0], x)]
+  if p[1] == h and p[2] != h:
+    return [((p[0], 0), x)]
+  if p[1] != h and p[2] == h:
+    return [((p[0], 1), x)]
+  if p[1] == h and p[2] == h:
+    return [((p[0], 0), x), ((p[0], 1), x)]
 
 
 class ScarfSolution():
-  """docstring for ScarfSolution"""
-  def __init__(self, S, alloc, basis, num_pivots=-1):
+  """Solution of a stable matching instance.
+
+  fields:
+    x: a possibly fractional allocation vector, where `x[i]` is the indicator of 
+       the allocation plan ins.pair_list[i].
+    basis: feasible and ordinal basis as returned by scarf algorithm.
+    num_pivots: number of pivots performed.
+    is_int: True if the solution is integral.
+    hospital_slack: number of empty seats in hospitals after allocation.
+  """
+  def __init__(self, S, alloc, basis, num_pivots=-1, tol=1e-6):
+    """
+    Args:
+      S: a `ScarfInstance` object.
+      alloc: allocation vector.
+      basis: indices.
+      num_pivots: number of pivots in the algorithm.
+      tol: tolerance for integral testing.
+    """
+    # For linear algebra ensusiasts
     self.x = sp.csc_matrix((alloc, (basis, np.zeros(len(basis)))), 
                            shape=(S.A.shape[1], 1), dtype=np.float64)
+    self.single_slack = self.x[:S.num_single].T.toarray()[0].tolist()
+    self.couple_slack = self.x[
+        S.num_single:S.num_single + S.num_couple].T.toarray()[0].tolist()
+    self.hospital_slack = self.x[
+        S.num_single + S.num_couple:
+        S.num_single + S.num_couple + S.num_hospital].T.toarray()[0].tolist()
     self.basis = basis
     self.num_pivots = num_pivots
-    self.is_int = _is_int(alloc)
+    self.is_int = _is_int(alloc, tol)
+    # For solution lookup
     self._num_hospital = S.num_hospital
-    self._pair_list = [S.pair_list[col] for col in basis]
-    self._solution_map = {self._pair_list[i]: alloc[i]
-                          for i in range(len(basis))}
+    self._solution_map = {S.pair_list[basis[i]]: alloc[i] 
+                          for i in range(len(basis)) if alloc[i] > tol}
+    _pair_list = self._solution_map.keys()
     self.single_allocations = [
-        _s_select(self._pair_list, s) for s in range(S.num_single)] 
+        _s_select(_pair_list, s) for s in range(S.num_single)] 
     self.couple_allocations = [
-        _c_select(self._pair_list, c) for c in range(S.num_couple)]
-    self.actual_hospital_cap = S.A.dot(self.x).T[0][S.num_single+S.num_couple:] 
+        _c_select(_pair_list, c) for c in range(S.num_couple)]
+    self.hospital_allocations = [
+        _h_select(_pair_list, h) for h in range(S.num_hospital)]
 
   def __repr__(self):
     s = ["<ScarfSolution of {s} singles, {c} couples, {h} hospitals".format(
@@ -361,9 +410,21 @@ class ScarfSolution():
     return "\n".join(s)
 
   def __getitem__(self, s):
+    """Get matched hospital/doctor.
+
+    Args:
+      s: either a tuple indicating a doctor(s)-hospital(s) pair, or a string
+         indicating a single (e.g. "s10") or a couple ("c2") or a hospital
+         (e.g. "h12")
+
+    Returns:
+      a number between 0 and 1 (allocation fraction) if `s` is a doctor(s)-hospital(s)
+         pair; a dictionary from hospital/hospitals/doctor to allocation fraction
+         if `s` is a string indicating single/couple/hospital.
+    """
     if isinstance(s, tuple):
-      if pair in self._solution_map:
-        return self._solution_map[pair]
+      if s in self._solution_map:
+        return self._solution_map[s]
       else:
         return 0.0
     elif isinstance(s, str):
@@ -371,12 +432,22 @@ class ScarfSolution():
         return self.get_single_allocation(int(s[1:]))
       elif s.startswith("c"):
         return self.get_couple_allocation(int(s[1:]))
+      elif s.startswith("h"):
+        return self.get_hospital_allocation(int(s[1:]))
+      else:
+        raise TypeError("Unrecognized index.")
 
   def get_single_allocation(self, s):
     return {p[1]: self._solution_map[p] for p in self.single_allocations[s]}
 
   def get_couple_allocation(self, c):
     return {p[1:]: self._solution_map[p] for p in self.couple_allocations[c]}
+
+  def get_hospital_allocation(self, h):
+    ll = []
+    for p in self.hospital_allocations[h]:
+      ll += _get_member(p, h, self._solution_map[p])
+    return dict(ll)
 
 
 def solve(ins, verbose=False):
@@ -389,8 +460,14 @@ def solve(ins, verbose=False):
 
   Returns:
     sol: a `ScarfSolution` object.
-    x: a possibly fractional allocation vector, where `x[i]` is the indicator of 
-       the allocation plan ins.pair_list[i].
+    fields:
+      x: a possibly fractional allocation vector, where `x[i]` is the indicator of 
+         the allocation plan ins.pair_list[i].
+      basis: feasible and ordinal basis as returned by scarf algorithm.
+      num_pivots: number of pivots performed.
+      is_int: True if the solution is integral.
+      hospital_slack: number of empty seats in hospitals after allocation.
+    `sol` is also indexable.
   """
   alloc, basis, num_pivots = scarf.core.scarf_solve(
       A=ins.full_A(),

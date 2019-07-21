@@ -34,6 +34,13 @@ def _update_A_b(A, b, row, pivot, oprows):
       A[r, :] -= A[r, pivot] * A[row, :]
 
 
+@nb.njit('void(float64[:,:], float64[:], int64, int64, int64[:])', parallel=True)
+def _update_A_b_1(A, b, row, pivot, oprows):
+  """Subtract a multiple of the row A[row, :] from all other rows."""
+  b[oprows] -= A[oprows, pivot] * b[row]
+  A[oprows, :] -= np.dot(A[oprows, pivot:pivot + 1], A[row: row+1, :])
+
+
 @nb.njit('void(float64[:,:], float64[:], int64, int64)', parallel=True)
 def _update_A_b_plain(A, b, row, pivot):
   """Subtract a multiple of the row A[row, :] from all other rows."""
@@ -68,8 +75,8 @@ def cardinal_pivot(A, b, card_basis, pivot):
 
   b[row] = b[row] / A[row, pivot]
   A[row, :] = A[row, :] / A[row, pivot]
+
   _update_A_b(A, b, row, pivot, np.nonzero(A[:, pivot])[0])
-  # _update_A_b_plain(A, b, row, pivot)
 
   return new_pivot
 
