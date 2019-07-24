@@ -101,7 +101,7 @@ def save_pickle(ins, filename):
         {
             "single_pref_list": ins.single_pref_list,
             "couple_pref_list": ins.couple_pref_list,
-            "hospital_pref_list": ins.hospital_pref_list,
+            "hospital_pref_list": ins.hospital_pref_list.hospital_pref_list,
             "hospital_cap": ins.hospital_cap
         }, g
     )

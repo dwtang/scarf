@@ -2,61 +2,13 @@
 
 import os
 import sys
-sys.path.insert(0, os.path.abspath(
-	os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath('..'))
 
 import numpy as np
 import unittest
 
 import scarf
 from scarf import utils
-
-
-class TestScarfMethods(unittest.TestCase):
-  """docstring for TestScarfMethods"""
-  
-  def test_pref_list_2_score_list(self):
-    hospital_pref_list = [
-        [1, (0, 1), 0, (1, 0), (2, 1), (2, 0), (1, 1), (0, 0)],
-        [(0, 1), 0, (1, 0), 1, (2, 0), (2, 1), (0, 0), (1, 1)]
-    ] 
-    single_sc, couple_0_sc, couple_1_sc = scarf.pref_list_2_score_list(
-        num_single=2,
-        num_couple=3,
-        num_hospital=2,
-        hospital_pref_list=hospital_pref_list
-    )
-    single_score = single_sc[0]
-    couple_score = list(zip(couple_0_sc[0], couple_1_sc[0]))
-
-    self.assertGreater(single_score[1], couple_score[0][1]) 
-    self.assertGreater(couple_score[0][1], single_score[0])
-    self.assertGreater(single_score[0], couple_score[1][0])
-    self.assertGreater(couple_score[1][0], couple_score[2][1])
-    self.assertGreater(couple_score[2][1], couple_score[2][0])
-    self.assertGreater(couple_score[2][0], couple_score[1][1])
-    self.assertGreater(couple_score[1][1], couple_score[0][0])
-
-  def test_pref_list_2_score_list_idpref(self):
-    hospital_pref_list = [
-        1, (0, 1), 0, (1, 0), (2, 1), (2, 0), (1, 1), (0, 0)
-    ]
-    single_sc, couple_0_sc, couple_1_sc = scarf.pref_list_2_score_list(
-        num_single=2,
-        num_couple=3,
-        num_hospital=4,
-        hospital_pref_list=hospital_pref_list
-    )
-    single_score = single_sc[1]
-    couple_score = list(zip(couple_0_sc[1], couple_1_sc[1]))
-
-    self.assertGreater(single_score[1], couple_score[0][1]) 
-    self.assertGreater(couple_score[0][1], single_score[0])
-    self.assertGreater(single_score[0], couple_score[1][0])
-    self.assertGreater(couple_score[1][0], couple_score[2][1])
-    self.assertGreater(couple_score[2][1], couple_score[2][0])
-    self.assertGreater(couple_score[2][0], couple_score[1][1])
-    self.assertGreater(couple_score[1][1], couple_score[0][0])
 
 
 class TestScarfClass(unittest.TestCase):
@@ -178,20 +130,21 @@ class TestRandomGenAndSolve(unittest.TestCase):
     ]
     for s in range(S.num_single):
       self.assertListEqual(s_pref_list[s], S.single_pref_list[s])
+      self.assertEqual([S.hospital_rank_by_single(s, h) for h in S.single_pref_list[s]],
+                       list(range(1, len(S.single_pref_list[s]) + 1)))
     for c in range(S.num_couple):
       self.assertListEqual(c_pref_list[c], S.couple_pref_list[c])
+      self.assertEqual([S.hospital_rank_by_couple(c, hs) for hs in S.couple_pref_list[c]],
+                       list(range(1, len(S.couple_pref_list[c]) + 1)))
     for h in range(S.num_hospital):
       self.assertListEqual(h_pref_list_from_U[h], h_pref_list_from_pref[h])
+      self.assertListEqual([S.doctor_rank_by_hospital(h, s_or_c) for s_or_c in S.hospital_pref_list[h]],
+                           list(range(1, len(S.hospital_pref_list[h]) + 1)))
 
   def run_solve(self, S):
     sol = scarf.solve(S)
     self.assertTrue(utils.check_stable(S.full_U(), sol.basis))
-    self.assertTrue(utils.check_feasible(S.full_A(), sol.basis, S.full_b()))
-    self.assertTrue(np.all(np.round(S.A.dot(sol.x).T.toarray()[0], 6) == S.full_b()))
-    p = S.pair_list[sol.basis[0]]
-    self.assertTrue(sol[p] == sol.x[sol.basis[0]])
-    p = S.pair_list[sol.basis[1]]
-    self.assertTrue(sol[p] == sol.x[sol.basis[1]])
+    self.assertTrue(utils.check_feasible(S.full_A(), sol.basis, sol.alloc, S.full_b()))
 
   def test_small(self):
     S = scarf.gen_random_instance(
@@ -216,6 +169,11 @@ class TestRandomGenAndSolve(unittest.TestCase):
         num_single=0, num_couple=2, num_hospital=1)
     self.run_test(S)
 
+  def test_ihp(self):
+    S = scarf.gen_random_instance(
+        num_single=10, num_couple=20, num_hospital=10, ihp=True)
+    self.run_test(S)
+
   def test_solve_0(self):
     S = scarf.gen_random_instance(
         num_single=0, num_couple=2, num_hospital=1)
@@ -236,10 +194,21 @@ class TestRandomGenAndSolve(unittest.TestCase):
         num_single=0, num_couple=20, num_hospital=10)
     self.run_solve(S)
 
-  def test_solve_3(self):
+  def test_solve_4(self):
     S = scarf.gen_random_instance(
         num_single=20, num_couple=0, num_hospital=10)
     self.run_solve(S)
+
+  def test_solve_5(self):
+    S = scarf.gen_random_instance(
+        num_single=20, num_couple=10, num_hospital=10, single_pref_len=5, couple_pref_len=10)
+    self.run_solve(S)
+
+  def test_solve_ihp(self):
+    S = scarf.gen_random_instance(
+        num_single=20, num_couple=10, num_hospital=10, single_pref_len=5, couple_pref_len=10, ihp=True)
+    self.run_solve(S)
+
 
 
 if __name__ == '__main__':

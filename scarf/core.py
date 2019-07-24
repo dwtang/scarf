@@ -2,9 +2,10 @@
 
 import numba as nb
 import numpy as np
+import scipy.optimize as spopt
 import time
 
-__all__ = ["scarf_solve"]
+__all__ = ["scarf_solve", "iterative_rounding"]
 
 
 @nb.njit('int32(int32[:])')
@@ -67,6 +68,7 @@ def cardinal_pivot(A, b, card_basis, pivot):
   # transfrom row index to the row index of matrix A
   row = candrows[row]
   col = np.nonzero(np.take(A[row, :], card_basis))[0][0]
+  # col = np.argmax(np.take(A[row, :], card_basis) != 0)
   new_pivot = card_basis[col]
 
   # In principle, could return new_pivot now can perform the matrix and vector
@@ -234,3 +236,101 @@ def scarf_solve(A, U, b, verbose=False):
 
   alloc = np.linalg.solve(A[:, basis], b)
   return alloc, basis, pivot_steps
+
+
+def iterative_rounding(basis, alloc, A, num_doctor_row, b, tol=1e-6, 
+                       verbose=False):
+  """Round a feasible and stable fractional solution to a new solution.
+
+  Invented by T. Nguyen and R. Vohra, the Iterative Rounding Method performs a
+    rounding procedure on a feasible and stable fractional solution of a stable
+    matching problem and returns a integral stable matching which violates the 
+    capacity constraint, but the violations are small. This implementation can 
+    guarantee that no individual hospital would be overallocated by more than 2
+    seats, and the total overallocation will be no more than 9 seats.
+
+  Args:
+    basis: The feasible and dominating basis (with no slack variable) to start with.
+    alloc: The allocation vector with only the elements in basis.
+    A: Doctor constraint matrix, Hospital capacity constraint matrix.
+    num_doctor_row: A[:num_doctor_row, :] is the doctor constraint matrix.
+    hospital_cap: Hospital capacity vector.
+  """
+
+  # basis_np = np.array(basis)
+  # non_slack = basis_np >= A.shape[0]
+
+  # A = A[:, basis_np[non_slack]].toarray()
+  A = A[:, basis].toarray()
+  aggh = np.sum(A[num_doctor_row:, :], axis=0, keepdims=True)
+  aggb = np.sum(b[num_doctor_row:])
+
+  A = np.concatenate((A, aggh), axis=0)
+  b = np.concatenate((b, [aggb]))
+  x = np.round(alloc, 4 - np.log10(tol).astype(np.int64))
+ 
+  active_rows = list(range(num_doctor_row, A.shape[0]))
+  agg_still_alive = True
+  while True:
+    x_is_int = is_int_vec(x, 1e-4 * tol)
+    # print("\nIter! x = ", np.round(x[~x_is_int], 10))
+    # print("Iter! id = ", np.nonzero(~x_is_int)[0])
+    # print("Active rows: ", np.take(A[:, ~x_is_int], active_rows, axis=0))
+    b1 = b - rd(np.dot(A[:, x_is_int], x[x_is_int]))
+    if np.all(x_is_int):
+      # return basis_np[non_slack], rd(x)
+      break
+    binding = np.dot(A, x) > b1 - tol 
+    x_is_frac = ~x_is_int
+    candrows = binding[active_rows] & (
+        np.dot(A[active_rows, :], x_is_frac) <= 3)
+    # print("candrows: ", [active_rows[j] for j in np.nonzero(candrows)[0]])
+    if np.any(candrows):
+      elim = np.nonzero(candrows)[0][0]
+      active_rows.pop(elim)
+      # print("# Elim!")
+    elif agg_still_alive:
+      contain_frac = ~binding[:num_doctor_row] & (
+          np.dot(A[:num_doctor_row, ~slack], x_is_frac[~slack]) > 0)
+      if np.sum(contain_frac) <= 2:
+        active_rows[-1:] = []
+        agg_still_alive = False
+    else:
+      raise RuntimeError("Something Wrong...")
+
+    binding_doctors = np.nonzero(binding[:num_doctor_row])[0]
+    userows = np.concatenate(
+        (np.nonzero(~binding[:num_doctor_row])[0], active_rows))
+    A_eq, b_eq = A[binding_doctors, :], b1[binding_doctors]
+    A_ub, b_ub = A[userows, :], b1[userows]
+    A_eq, b_eq = A_eq[b_eq > 0, :], b_eq[b_eq > 0]
+    A_ub, b_ub = A_ub[b_ub > 0, :], b_ub[b_ub > 0]
+
+    # print("The program to solve: c = ", aggh[0, x_is_frac])
+    # print("A_ub = ", A_ub[:, x_is_frac])
+    # print("A_eq = ", A_eq[:, x_is_frac])
+    # print("b_ub = ", b_ub)
+    # print("b_eq = ", b_ub)
+
+    res = spopt.linprog(
+      c= -aggh[0, x_is_frac], A_ub=A_ub[:, x_is_frac], b_ub=b_ub,
+      A_eq=A_eq[:, x_is_frac], b_eq=b_eq, method="simplex")
+    if not res.success:
+      raise RuntimeError("Linear program failed!")
+    x[x_is_frac] = res.x 
+    # print("solution: ", res.x)
+
+  # Intergral solution has been found!
+  return rd(x)
+
+
+def rd(vec):
+  return np.round(vec).astype(np.int32)
+
+
+def is_int(vec, tol=1e-10):
+  return np.all(is_int_vec(vec, tol))
+
+
+def is_int_vec(vec, tol=1e-10):
+  return np.abs(vec - np.round(vec)) <= tol

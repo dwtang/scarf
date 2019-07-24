@@ -95,18 +95,16 @@ def check_stable(U, basis):
   return np.all(np.any(U_dom, axis=0))
 
 
-def check_feasible(A, basis, b):
+def check_feasible(A, basis, alloc, b):
   """Check if a basis is a feasible basis for a polytope.
 
   Args:
     A: (m, n) constraint matrix.
     basis: a list of m column indices
+    alloc: allocation vector
     b: the right hand side vector of size (m,)
 
   Returns:
     True if `basis` is a feasible basis of the polytope `Ax=b, x>=0`.
   """
-  if np.linalg.det(A[:, basis]) == 0:
-    return False
-  else:
-    return np.all(np.linalg.solve(A[:, basis], b) >= -1e-6)
+  return np.all(np.dot(A[:, basis], alloc) <= b)

@@ -11,7 +11,7 @@ from scipy import sparse as sp
 import scarf.core
 
 __all__ = [
-    "pref_list_2_score_list", "ScarfInstance", "solve"
+    "ScarfInstance", "solve", "round"
 ]
 
 def _assert_unique(li):
@@ -67,7 +67,7 @@ def tuple_2_id(num_single, idx):
     raise TypeError("Cannot recognize idx as single or couple")
 
 
-def pref_list_2_score_list(num_single, num_couple, num_hospital, hospital_pref_list):
+def _pref_list_2_score_list(num_single, num_couple, num_hospital, hospital_pref_list):
   """Transform one hospital preferences list to a list of scores.
 
   All returned scores are in range (-num_applicant, 0] * num_hosp_pairs - 1, 
@@ -92,13 +92,9 @@ def pref_list_2_score_list(num_single, num_couple, num_hospital, hospital_pref_l
     (num_hospital + 1, num_single + 2 * num_couple), dtype=np.int32)
   for h in range(num_hospital):
     # transform from tuple to idx
-    if is_identical_pref:
-      hospital_h_pref_list = hospital_pref_list
-    else:
-      hospital_h_pref_list = hospital_pref_list[h]
 
     li = list(map(
-      lambda x: tuple_2_id(num_single, x), hospital_h_pref_list
+      lambda x: tuple_2_id(num_single, x), hospital_pref_list[h]
     ))
     doctor_scores[h][li] = - np.arange(len(li))
 
@@ -108,6 +104,32 @@ def pref_list_2_score_list(num_single, num_couple, num_hospital, hospital_pref_l
               num_single, num_single + 2 * num_couple, 2)],
           doctor_scores[:, np.arange(
               num_single + 1, num_single + 2 * num_couple, 2)]) 
+
+
+class HospPrefList():
+  def __init__(self, hospital_pref_list):
+    self.hospital_pref_list = hospital_pref_list
+    self.is_ihp = not isinstance(hospital_pref_list[0], list)
+    if self.is_ihp:
+      self.doctor_lookup = {hospital_pref_list[i]: i+1
+                            for i in range(len(hospital_pref_list))}
+    else:
+      self.doctor_lookup = [{hospital_pref_list[h][i]: i+1
+                            for i in range(len(hospital_pref_list[h]))}
+                            for h in range(len(hospital_pref_list))]   
+
+  def __getitem__(self, h):
+    if self.is_ihp:
+      return self.hospital_pref_list
+    else:
+      return self.hospital_pref_list[h]
+
+  def rank(self, h, s_or_c):
+    if self.is_ihp:
+      return self.doctor_lookup[s_or_c]
+    else:
+      return self.doctor_lookup[h][s_or_c]
+
 
 
 class ScarfInstance():
@@ -144,7 +166,7 @@ class ScarfInstance():
     # store the data
     self.single_pref_list = single_pref_list
     self.couple_pref_list = couple_pref_list
-    self.hospital_pref_list = hospital_pref_list
+    self.hospital_pref_list = HospPrefList(hospital_pref_list)
     self.hospital_cap = hospital_cap
 
     # creates mapping from matrix index to allocation plan
@@ -174,6 +196,7 @@ class ScarfInstance():
     for c in range(self.num_couple):
       couple_pair_list += [(c, h0, h1) for h0, h1 in self.couple_pref_list[c]]
     self.pair_list = slack_list + single_pair_list + couple_pair_list
+    self._lookup = {self.pair_list[j]: j for j in range(len(self.pair_list))}
     self._nsl, self._nps = len(slack_list), len(single_pair_list), 
     self._npc = len(couple_pair_list)
 
@@ -271,7 +294,7 @@ class ScarfInstance():
         (self.num_couple, self._nps), dtype=np.int8)
     A_c_pc, U_c_pc, V_c_pc = self._create_couple_pc_matrices()
 
-    single_scores, couple_0_scores, couple_1_scores = pref_list_2_score_list(
+    single_scores, couple_0_scores, couple_1_scores = _pref_list_2_score_list(
         self.num_single, self.num_couple, self.num_hospital,
         self.hospital_pref_list)
     A_h_ps, U_h_ps = self._create_hospital_ps_matrices(single_scores)
@@ -298,14 +321,14 @@ class ScarfInstance():
             sp.hstack([A_c_ps, A_c_pc]),
             sp.hstack([A_h_ps, A_h_pc])
         ])
-    ])
+    ], format="csr")
     U = sp.hstack([UL, sp.vstack(
         [
             sp.hstack([U_s_ps, U_s_pc]),
             sp.hstack([U_c_ps, U_c_pc]),
             sp.hstack([U_h_ps, U_h_pc])
         ])
-    ])
+    ], format="csr")
     return A, U
 
   def full_A(self):
@@ -319,9 +342,24 @@ class ScarfInstance():
         (np.ones(self.num_single + self.num_couple, dtype=np.int32),
          np.array(self.hospital_cap, dtype=np.int32)))
 
+  def hospital_rank_by_doctor(self, p):
+    if p in self._lookup:
+      if len(p) == 2:  # single
+        return self.hospital_rank_by_single(p)
+      else:  # couple
+        return self.hospital_rank_by_couple(p)
+    else:
+      return -1  # not ranked
 
-def _is_int(vec, tol=1e-6):
-  return np.max(np.abs(vec - np.round(vec))) <= tol
+  def hospital_rank_by_single(self, s, h):
+    return -self.U[s, self._lookup[(s, h)]]
+
+  def hospital_rank_by_couple(self, c, hs):
+    h0, h1 = hs
+    return -self.U[self.num_single + c, self._lookup[(c, h0, h1)]]
+
+  def doctor_rank_by_hospital(self, h, s_or_c):
+    return self.hospital_pref_list.rank(h, s_or_c)
 
 
 def _s_select(pair_list, s):
@@ -337,7 +375,7 @@ def _c_select(pair_list, c):
 
 
 def _is_h_related(p, h):
-  return p[1] == h or p[-1] == h 
+  return (p[1] == h or p[-1] == h) and p[0] > 0
 
 
 def _h_select(pair_list, h):
@@ -375,22 +413,21 @@ class ScarfSolution():
       num_pivots: number of pivots in the algorithm.
       tol: tolerance for integral testing.
     """
-    # For linear algebra ensusiasts
-    self.x = sp.csc_matrix((alloc, (basis, np.zeros(len(basis)))), 
-                           shape=(S.A.shape[1], 1), dtype=np.float64)
-    self.single_slack = self.x[:S.num_single].T.toarray()[0].tolist()
-    self.couple_slack = self.x[
-        S.num_single:S.num_single + S.num_couple].T.toarray()[0].tolist()
-    self.hospital_slack = self.x[
-        S.num_single + S.num_couple:
-        S.num_single + S.num_couple + S.num_hospital].T.toarray()[0].tolist()
-    self.basis = basis
+    basis_np = np.array(basis, dtype=np.int64)
+    self.basis = basis_np[basis_np >= S._nsl]
+    self.is_int = scarf.core.is_int(alloc, tol)
+    alloc_np = np.array(alloc, dtype=np.int64 if self.is_int else np.float64)
+    self.alloc = alloc_np[basis_np >= S._nsl]
+
+    self.overallocation = np.dot(
+        np.take(S.A[S.num_single + S.num_couple:, :].toarray(),
+                self.basis, axis=1),
+        self.alloc) - np.array(S.hospital_cap)
     self.num_pivots = num_pivots
-    self.is_int = _is_int(alloc, tol)
     # For solution lookup
     self._num_hospital = S.num_hospital
-    self._solution_map = {S.pair_list[basis[i]]: alloc[i] 
-                          for i in range(len(basis)) if alloc[i] > tol}
+    self._solution_map = {S.pair_list[self.basis[i]]: np.round(self.alloc[i], 6)
+                          for i in range(len(self.basis)) if self.alloc[i] > tol}
     _pair_list = self._solution_map.keys()
     self.single_allocations = [
         _s_select(_pair_list, s) for s in range(S.num_single)] 
@@ -440,14 +477,20 @@ class ScarfSolution():
   def get_single_allocation(self, s):
     return {p[1]: self._solution_map[p] for p in self.single_allocations[s]}
 
+  s = get_single_allocation
+
   def get_couple_allocation(self, c):
     return {p[1:]: self._solution_map[p] for p in self.couple_allocations[c]}
+
+  c = get_couple_allocation
 
   def get_hospital_allocation(self, h):
     ll = []
     for p in self.hospital_allocations[h]:
       ll += _get_member(p, h, self._solution_map[p])
     return dict(ll)
+
+  h = get_hospital_allocation
 
 
 def solve(ins, verbose=False):
@@ -475,4 +518,15 @@ def solve(ins, verbose=False):
       b=ins.full_b(),
       verbose=verbose
   )
-  return ScarfSolution(ins, alloc, basis, num_pivots)
+  sol = ScarfSolution(S=ins, alloc=alloc, basis=basis, num_pivots=num_pivots)
+  if verbose:
+    print("Solution {0} integral.".format("is" if sol.is_int else "is NOT"))
+  return sol
+
+
+def round(sol, ins):
+  int_alloc = scarf.core.iterative_rounding(
+      alloc=sol.alloc, basis=sol.basis, A=ins.A,
+      num_doctor_row=ins.num_single + ins.num_couple, b=ins.full_b())
+  return ScarfSolution(S=ins, alloc=int_alloc, basis=sol.basis,
+                          num_pivots=sol.num_pivots)
