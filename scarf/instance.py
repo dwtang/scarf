@@ -19,7 +19,7 @@ def _assert_unique(li):
   assert(len(li) == len(set(li)))
 
 
-def sanity_check(num_single, num_couple, num_hospital,
+def _sanity_check(num_single, num_couple, num_hospital,
                  single_pref_list, couple_pref_list, hospital_pref_list):
   """Sanity check for construction of instances."""
   assert(len(single_pref_list) == num_single)
@@ -50,7 +50,7 @@ def sanity_check(num_single, num_couple, num_hospital,
           assert(0 <= i[1] <= 1)
 
 
-def tuple_2_id(num_single, idx):
+def _tuple_2_id(num_single, idx):
   """Transfrom from tuple representation to id.
 
   If idx is a tuple representation of a member of a couple, transform it to 
@@ -94,7 +94,7 @@ def _pref_list_2_score_list(num_single, num_couple, num_hospital, hospital_pref_
     # transform from tuple to idx
 
     li = list(map(
-      lambda x: tuple_2_id(num_single, x), hospital_pref_list[h]
+      lambda x: _tuple_2_id(num_single, x), hospital_pref_list[h]
     ))
     doctor_scores[h][li] = - np.arange(len(li))
 
@@ -133,7 +133,40 @@ class HospPrefList():
 
 
 class ScarfInstance():
-  """Stable matching problem instance."""
+  """Stable matching problem instance.
+
+  An object storing all the preferences of doctors and hospitals, as well as the
+  capacity of hospitals.
+
+  Attributes:
+    num_single: Number of single doctors in the problem.
+    num_couple: Number of couples in the problem. 
+    num_applicants: Number of total doctors, equals `num_single + 2 * num_couple`.
+    single_pref_list: A list of preference list of singles.
+      `single_pref_list[i][j]` is the j-th most prefered hospital of the i-th
+      single doctor. Any hospital not in `single_pref_list[i]` is considered as
+      worse than unemployment option by the i-th single doctor.
+    couple_pref_list: A list of preference list of couples.
+      `couple_pref_list[i][j]` is the j-th most prefered hospital pair of the
+      i-th couple. Any hospital pair not in `couple_pref_list[i]` is considered as
+      worse than the 'both unemployed' option by the i-th couple.
+    hospital_pref_list: A `HospPrefList` object.
+      `hospital_pref_list[i][j]` is the j-th most prefered individual doctor of
+      the i-th hospital. Single doctors are represented by an integer, while the
+      first member of the i-th couple is represented by a tuple (i, 0), and the 
+      second member is represented by (i, 1).
+    hospital_cap: A list of capacities of hospitals.
+    pair_list: list of all admisible allocation plans. (i.e. no single/couple/hospital
+      involved in this plan rate unemployment/'both unemployed'/'empty seat'
+      higher than this plan.) A plan is a tuple `(s, h0)` or `(c, h0, h1)` where
+      `s` is in [-1, num_singles), `c` is in [0, num_couples), `hj` is in
+      [-1, num_hospitals), where -1 indicates the outside option.
+    A: The constraint/assignment matrix of `num_single + num_couple + num_hospital`
+      rows and `len(pair_list)` columns. Rows represent single doctors, couples,
+      and hospitals, in this order. Columns represent the allocation plans.
+    U: The utility matrix with the same size as A. The rows and columns represents
+      the same as above.
+  """
   def __init__(self, single_pref_list,
                couple_pref_list, hospital_pref_list, hospital_cap):
     """
@@ -143,7 +176,6 @@ class ScarfInstance():
     capacity vector.
 
     Args:
-      hospital_cap: a list indicating the number of seat in each hospital.
       single_pref_list: list of list of hospital indices. 
       couple_pref_list: list of list of tuple of two hospital indices. Use -1
         to indicate the option of unemployment.
@@ -152,14 +184,17 @@ class ScarfInstance():
           represent the index of a single doctor, and a tuple (c, j) represent
           the j-th member of couple c (j is either 0 or 1)
         - or a list of integers and tuples for identical hospital preference
+      hospital_cap: a list indicating the number of seats in each hospital.
     """
     
     self.num_single = len(single_pref_list)
     self.num_couple = len(couple_pref_list)
     self.num_hospital = len(hospital_cap)
     # Complete sanity check before proceeding
-    sanity_check(self.num_single, self.num_couple, self.num_hospital,
+    # start = time.time()
+    _sanity_check(self.num_single, self.num_couple, self.num_hospital,
                  single_pref_list, couple_pref_list, hospital_pref_list)
+    # end = time.time(); print("Sanity check time: {0:.3f}s".format(end - start))
     self.num_applicant = self.num_single + 2 * self.num_couple
     self._nhp = (self.num_hospital + 1) ** 2 - 1
 
@@ -200,16 +235,27 @@ class ScarfInstance():
     self._nsl, self._nps = len(slack_list), len(single_pair_list), 
     self._npc = len(couple_pair_list)
 
-  def slack_list(self):
+  def _slack_list(self):
+    """Returns a list of allocation plans corresponding to outside options."""
     return self.pair_list[:self._nsl]
 
-  def single_pair_list(self, j=-1):
+  def admissible_plans(self):
+    """Returns admissible allocation plans that are not outside options.
+
+    Returns admissible allocation plans that involves at least one doctor and one
+    hospital.
+    """
+    return self.pair_list[self._nsl:]
+
+  def _single_pair_list(self, j=-1):
+    """Returns admisible allocation plans involving single doctors."""
     if j < 0:
       return self.pair_list[self._nsl: self._nsl + self._nps]
     else:
       return self.pair_list[self._nsl + j]
 
-  def couple_pair_list(self, j=-1):
+  def _couple_pair_list(self, j=-1):
+    """Returns admisible allocation plans involving couples."""
     if j < 0:
       return self.pair_list[self._nsl + self._nps:]
     else:
@@ -217,7 +263,7 @@ class ScarfInstance():
 
   def _create_single_ps_matrices(self):
     # Construct single - (single, hospital) utility matrix.
-    I = [s for s, h in self.single_pair_list()]
+    I = [s for s, h in self._single_pair_list()]
     J = range(self._nps)
     # For each single, assign score from high to low.
     W = np.ones(self._nps, dtype=np.int8)  # for A
@@ -239,7 +285,7 @@ class ScarfInstance():
       1. The matrix
       2. A 1-D numpy array of scores couples assigned to pairs, for tie breaking.
     """
-    I = [c for c, h0, h1 in self.couple_pair_list()]
+    I = [c for c, h0, h1 in self._couple_pair_list()]
     J = range(self._npc)
     W = np.ones(self._npc, dtype=np.int8)
     # For each couple, assign score from high to low.
@@ -255,11 +301,11 @@ class ScarfInstance():
     return A_c_pc, U_c_pc, V + 1
 
   def _create_hospital_ps_matrices(self, single_scores):
-    I = [h for s, h in self.single_pair_list()]
+    I = [h for s, h in self._single_pair_list()]
     J = range(self._nps)
     W = np.ones(self._nps, dtype=np.int8)
     # The utility value is the score hospital assigned to single.
-    V = [single_scores[h][s] for s, h in self.single_pair_list()]
+    V = [single_scores[h][s] for s, h in self._single_pair_list()]
     # Construct the matrix
     A_h_ps = sp.coo_matrix(
         (W, (I, J)), shape=(self.num_hospital, self._nps), dtype=np.int8)
@@ -268,14 +314,14 @@ class ScarfInstance():
     return A_h_ps, U_h_ps
 
   def _create_hospital_k_pc_matrices(self, couple_scores, V_c_pc, k):
-    Ik = [p[k+1] for p in self.couple_pair_list() if p[k+1] >= 0]
+    Ik = [p[k+1] for p in self._couple_pair_list() if p[k+1] >= 0]
     Jk = [j for j in range(self._npc)
-          if self.couple_pair_list(j)[k+1] >= 0]
+          if self._couple_pair_list(j)[k+1] >= 0]
     Wk = [1 for j in range(self._npc)
-          if self.couple_pair_list(j)[k+1] >= 0]
+          if self._couple_pair_list(j)[k+1] >= 0]
     # The utility value is the score hospital assigned to member 0 of couple.
     Vk = np.array([couple_scores[p[k+1]][p[0]]
-                   for p in self.couple_pair_list()
+                   for p in self._couple_pair_list()
                    if p[k+1] >= 0]) + V_c_pc[Jk]
           # adding couple's utility for tie breaking.
     A_hk_pc = sp.coo_matrix(
@@ -332,33 +378,71 @@ class ScarfInstance():
     return A, U
 
   def full_A(self):
+    """Obtains constraint matrix as a full matrix."""
     return self.A.toarray()
 
   def full_U(self):
+    """Obtains utility matrix as a full matrix."""
     return self.U.toarray()
 
   def full_b(self):
+    """Obtains right-hand-side vector as a 1-d array."""
     return np.concatenate(
         (np.ones(self.num_single + self.num_couple, dtype=np.int32),
          np.array(self.hospital_cap, dtype=np.int32)))
 
-  def hospital_rank_by_doctor(self, p):
-    if p in self._lookup:
-      if len(p) == 2:  # single
-        return self.hospital_rank_by_single(p)
-      else:  # couple
-        return self.hospital_rank_by_couple(p)
-    else:
-      return -1  # not ranked
-
   def hospital_rank_by_single(self, s, h):
-    return -self.U[s, self._lookup[(s, h)]]
+    """Obtains the ranking of hospital h by single s.
+
+    The most prefered hospital is of rank 1, the second is 2, and so on...
+
+    Args:
+      s: Index of single doctor.
+      h: Index of hospital.
+
+    Returns:
+      Ranking of hospital.
+    """
+    j = self._lookup.get((s, h))
+    if j is None:
+      return self.num_hospital
+    else:
+      return -self.U[s, j]
 
   def hospital_rank_by_couple(self, c, hs):
+    """Obtains the ranking of hospital pair (h0, h1) by single s.
+
+    The most prefered hospital pair is of rank 1, the second is 2, and so on...
+
+    Usage: `S.hospital_rank_by_couple(c, (h0, h1))`
+    Args:
+      c: Index of couple.
+      h0: Index of hospital, corresponds to the first member of the couple.
+      h1: Index of hospital, corresponds to the second member of the couple.
+
+    Returns:
+      Ranking of hospital pair.
+    """
     h0, h1 = hs
-    return -self.U[self.num_single + c, self._lookup[(c, h0, h1)]]
+    j = self._lookup.get((c, h0, h1))
+    if j is None:
+      return self._nhp + 1
+    else:
+      return -self.U[self.num_single + c, j]
 
   def doctor_rank_by_hospital(self, h, s_or_c):
+    """Obtains the ranking of individual doctor by a hospital.
+
+    The most prefered doctor is of rank 1, the second is 2, and so on...
+    
+    Args:
+      h: Index of hospital.
+      s_or_c: either an integer representing the index of a single doctor, or
+        a tuple `(c, j)` j=0,1 indicating a member of a couple.
+
+    Returns:
+      The ranking of doctor.
+    """
     return self.hospital_pref_list.rank(h, s_or_c)
 
 
@@ -396,20 +480,42 @@ def _get_member(p, h, x):
 class ScarfSolution():
   """Solution of a stable matching instance.
 
-  fields:
-    x: a possibly fractional allocation vector, where `x[i]` is the indicator of 
-       the allocation plan ins.pair_list[i].
-    basis: feasible and ordinal basis as returned by scarf algorithm.
+  A possibly fractional matching of doctors to hospitals, which may or may not
+  violate the capacity constraint.
+
+  One can directly access this object to obtain the solution:
+  e.g. for a `ScarfSolution` sol,
+    sol[(s, h)] is the fractional indicator (weight) of the allocation plan
+      'single s to hospital h'.
+    `sol["s20"]` or `sol.s(20)` is a dictionary representing the allocated
+      hospital and their weights/fractions for the 20-th single doctor.
+    `sol["c12"]` or `sol.c(12)` is a dictionary representing the allocated
+      hospital pairs and their weights/fractions for the 12-th couple.
+    `sol["h0"]` or `sol.h(3)` is a dictionary representing the allocated
+      doctors (int for single, tuple for couple member) and their weights/fractions
+      for the 0-th hospital.
+
+  Attributes:
     num_pivots: number of pivots performed.
     is_int: True if the solution is integral.
-    hospital_slack: number of empty seats in hospitals after allocation.
+    act_hospital_cap: array of number of allocated seats in each hospitals after
+      allocation.
+
+  Other Attributes: (where the associated `ScarfInstance` object `ins` is needed
+    to understand what these attributes represent.)
+    basis: list of column indices of the matrix ins.A, indicating the support of
+      the matching vector.
+    alloc: allocation vector, where `alloc[i]` is the fractional indicator of the
+      doctor-hospital pair `ins.pair_list[self.basis[i]]`.
   """
-  def __init__(self, S, alloc, basis, num_pivots=-1, tol=1e-6):
+  def __init__(self, S, basis, alloc, num_pivots=-1, tol=1e-6):
     """
     Args:
       S: a `ScarfInstance` object.
-      alloc: allocation vector.
-      basis: indices.
+      basis: list of column indices of the matrix S.A, indicating the support of
+        the matching vector.
+      alloc: allocation vector, where `alloc[i]` is the fractional indicator of the
+        doctor-hospital pair `ins.pair_list[self.basis[i]]`.
       num_pivots: number of pivots in the algorithm.
       tol: tolerance for integral testing.
     """
@@ -419,10 +525,9 @@ class ScarfSolution():
     alloc_np = np.array(alloc, dtype=np.int64 if self.is_int else np.float64)
     self.alloc = alloc_np[basis_np >= S._nsl]
 
-    self.overallocation = np.dot(
+    self.act_hospital_cap = np.dot(
         np.take(S.A[S.num_single + S.num_couple:, :].toarray(),
-                self.basis, axis=1),
-        self.alloc) - np.array(S.hospital_cap)
+                self.basis, axis=1), self.alloc)
     self.num_pivots = num_pivots
     # For solution lookup
     self._num_hospital = S.num_hospital
@@ -498,19 +603,12 @@ def solve(ins, verbose=False):
 
   Args:
     ins: a `ScarfInstance` object.
-    verbose: Extra information will be printed during running the algorithm if
-       set to be true.
+    verbose: bool, optional
+      If set to True, extra information will be printed when running the
+      algorithm. Default is False.
 
   Returns:
     sol: a `ScarfSolution` object.
-    fields:
-      x: a possibly fractional allocation vector, where `x[i]` is the indicator of 
-         the allocation plan ins.pair_list[i].
-      basis: feasible and ordinal basis as returned by scarf algorithm.
-      num_pivots: number of pivots performed.
-      is_int: True if the solution is integral.
-      hospital_slack: number of empty seats in hospitals after allocation.
-    `sol` is also indexable.
   """
   alloc, basis, num_pivots = scarf.core.scarf_solve(
       A=ins.full_A(),
@@ -525,6 +623,22 @@ def solve(ins, verbose=False):
 
 
 def round(sol, ins):
+  """Round a fractional stable matching to an integral stable matching.
+
+  Perform Iterative Rounding (IR) algorithm [1] on a fractional stable matching
+  to obtain an integral stable matching with respect to a new hosptial capacity
+  vector close to the original capacity vector.
+
+  [1] Nguyen, Thanh, and Rakesh Vohra. "Near-feasible stable matchings with couples."
+  American Economic Review 108.11 (2018): 3154-69.
+
+  Args:
+    sol: A `ScarfSolution` object associated with `ScarfInstance` ins
+    ins: A `ScarfInstance` object.
+
+  Returns:
+    int_sol: A `ScarfSolution` object which represents an integral solution.
+  """
   int_alloc = scarf.core.iterative_rounding(
       alloc=sol.alloc, basis=sol.basis, A=ins.A,
       num_doctor_row=ins.num_single + ins.num_couple, b=ins.full_b())

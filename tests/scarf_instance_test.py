@@ -130,12 +130,12 @@ class TestRandomGenAndSolve(unittest.TestCase):
     ]
     for s in range(S.num_single):
       self.assertListEqual(s_pref_list[s], S.single_pref_list[s])
-      self.assertEqual([S.hospital_rank_by_single(s, h) for h in S.single_pref_list[s]],
+      self.assertListEqual([S.hospital_rank_by_single(s, h) for h in S.single_pref_list[s]],
                        list(range(1, len(S.single_pref_list[s]) + 1)))
     for c in range(S.num_couple):
       self.assertListEqual(c_pref_list[c], S.couple_pref_list[c])
-      self.assertEqual([S.hospital_rank_by_couple(c, hs) for hs in S.couple_pref_list[c]],
-                       list(range(1, len(S.couple_pref_list[c]) + 1)))
+      self.assertListEqual([S.hospital_rank_by_couple(c, hs) for hs in S.couple_pref_list[c]],
+                           list(range(1, len(S.couple_pref_list[c]) + 1)))
     for h in range(S.num_hospital):
       self.assertListEqual(h_pref_list_from_U[h], h_pref_list_from_pref[h])
       self.assertListEqual([S.doctor_rank_by_hospital(h, s_or_c) for s_or_c in S.hospital_pref_list[h]],
@@ -176,22 +176,22 @@ class TestRandomGenAndSolve(unittest.TestCase):
 
   def test_solve_0(self):
     S = scarf.gen_random_instance(
-        num_single=0, num_couple=2, num_hospital=1)
+        num_single=0, num_couple=2, num_hospital=1, ihp=False)
     self.run_solve(S)
 
   def test_solve_1(self):
     S = scarf.gen_random_instance(
-        num_single=2, num_couple=0, num_hospital=1)
+        num_single=2, num_couple=0, num_hospital=1, ihp=False)
     self.run_solve(S)
 
   def test_solve_2(self):
     S = scarf.gen_random_instance(
-        num_single=2, num_couple=2, num_hospital=2)
+        num_single=2, num_couple=2, num_hospital=2, ihp=False)
     self.run_solve(S)
 
   def test_solve_3(self):
     S = scarf.gen_random_instance(
-        num_single=0, num_couple=20, num_hospital=10)
+        num_single=0, num_couple=20, num_hospital=10, ihp=False)
     self.run_solve(S)
 
   def test_solve_4(self):
@@ -209,6 +209,24 @@ class TestRandomGenAndSolve(unittest.TestCase):
         num_single=20, num_couple=10, num_hospital=10, single_pref_len=5, couple_pref_len=10, ihp=True)
     self.run_solve(S)
 
+  def run_rounding(self):
+    S = scarf.gen_random_instance(
+        num_single=10, num_couple=200, num_hospital=15, single_pref_len=10, couple_pref_len=150, ihp=True)
+    sol = scarf.solve(S)
+    int_sol = scarf.round(sol, S)
+    self.assertGreater(sum(sol.act_hospital_cap) + 4 + 1e-6, sum(int_sol.act_hospital_cap))
+    self.assertTrue(np.all(int_sol.act_hospital_cap - sol.act_hospital_cap <= 2 + 1e-6))
+    self.assertFalse(np.any([(sol[p] < 1e-6) & (int_sol[p] > 1e-6) for p in S.admissible_plans()]))
+    self.assertFalse(np.any([(sol[p] > 1 - 1e-6) & (int_sol[p] < 1 - 1e-6) for p in S.admissible_plans()]))
+
+  def test_rounding_0(self):
+    self.run_rounding()
+
+  def test_rounding_1(self):
+    self.run_rounding()
+
+  def test_rounding_2(self):
+    self.run_rounding()
 
 
 if __name__ == '__main__':

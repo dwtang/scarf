@@ -18,7 +18,7 @@ def _id_2_tuple(num_single, idx):
 def gen_random_instance(num_single, num_couple, num_hospital,
                         num_additional_seat=0,
                         single_pref_len=0,
-                        couple_pref_len=0, ihp=False):
+                        couple_pref_len=0, ihp=True):
   """Generate a uniform random instance.
 
   Generate a stable matching instance where single doctor's preference lists are
@@ -27,18 +27,27 @@ def gen_random_instance(num_single, num_couple, num_hospital,
   that are unemployment averse.
 
   Args:
-    num_single: Number of single doctors.
-    num_couple: Number of coupled doctors.
-    num_hospital: Number of hospitals.
-    num_additional_seat: Number of total seats will be number of applicants
-      plus num_additional_seat, provided that each hospital has at least one seat.
-    single_pref_len: Length of single's preference list. Any hospital outside 
-      preference list are worse than unemployment option. If not specified, full
-      preference list will be generated.
-    couple_pref_len: Length of couple's preference list. Any hospital pair outside 
-      preference list are worse than unemployment option. If not specified, full
-      preference list will be generated.
-    ihp: Set to `True` if hospitals are having identical preferences on doctors. 
+    num_single: int
+      Number of single doctors.
+    num_couple: int
+      Number of coupled doctors.
+    num_hospital: int
+      Number of hospitals.
+    num_additional_seat: int, optional
+      Number of total seats will be number of applicants plus num_additional_seat,
+      provided that each hospital has at least one seat (Otherwise the hospital
+      capacity is 1 for every hospital). Default is 0.
+    single_pref_len: int, optional
+      Length of single's preference list. Any hospital outside 
+      preference list are worse than unemployment option. Default: generate full
+      preference list.
+    couple_pref_len: int, optional
+      Length of couple's preference list. Any hospital pair outside 
+      preference list are worse than unemployment option. Default: generate full
+      preference list.
+    ihp: bool, optional
+      If True (default), hospitals will share the same preference on individual
+      doctors. Otherwise hospitals will have independent preference lists.
 
   Returns:
     A `ScarfInstance` object.

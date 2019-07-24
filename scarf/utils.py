@@ -95,7 +95,7 @@ def check_stable(U, basis):
   return np.all(np.any(U_dom, axis=0))
 
 
-def check_feasible(A, basis, alloc, b):
+def check_feasible(A, basis, alloc, b, tol=1e-6):
   """Check if a basis is a feasible basis for a polytope.
 
   Args:
@@ -107,4 +107,4 @@ def check_feasible(A, basis, alloc, b):
   Returns:
     True if `basis` is a feasible basis of the polytope `Ax=b, x>=0`.
   """
-  return np.all(np.dot(A[:, basis], alloc) <= b)
+  return np.all(np.dot(A[:, basis], alloc) <= np.array(b) + tol)
