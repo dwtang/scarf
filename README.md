@@ -1,9 +1,10 @@
 # Scarf
 
-Scarf is a python library for solving stable matching problems with couples, where one application is the National Resident Matching Program [wiki](https://en.wikipedia.org/wiki/National_Resident_Matching_Program). The package is named after Hebert Scarf, the inventor of Scarf's lemma and algorithm.
+Scarf is a python library for solving stable matching problems with couples, where one application is the [National Resident Matching Program](https://en.wikipedia.org/wiki/National_Resident_Matching_Program). The package is named after Hebert Scarf, the inventor of Scarf's lemma and algorithm.
 
 ## Features
 
+- Written in python3.
 - Solve for a near feasible stable matching given the preference of doctors and hospitals, and hospital capacities.
 - Generate random doctor hospital instances.
 
@@ -12,7 +13,7 @@ Accepted input format:
 - JSON
 
 Algorithms:
-- Scarf's algorithm with Iterative Rounding [Nguyen and Vohra 2016](https://web.ics.purdue.edu/~nguye161/e2sided.pdf)
+- Scarf's algorithm with Iterative Rounding [[Nguyen and Vohra 2016]](https://web.ics.purdue.edu/~nguye161/e2sided.pdf)
 
 ## Usage
 

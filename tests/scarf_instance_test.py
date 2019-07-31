@@ -29,7 +29,7 @@ class TestScarfClass(unittest.TestCase):
             [(0, 1), 0, (1, 0), 1, (2, 0), (2, 1), (0, 0), (1, 1)]
         ]
     }
-    self.S = scarf.ScarfInstance(
+    self.S = scarf.create_instance(
         single_pref_list=self.pref_list["single"],
         couple_pref_list=self.pref_list["couple"],
         hospital_pref_list=self.pref_list["hospital"],

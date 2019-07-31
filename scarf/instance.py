@@ -11,43 +11,63 @@ from scipy import sparse as sp
 import scarf.core
 
 __all__ = [
-    "ScarfInstance", "solve", "round"
+    "ScarfInstance", "create_instance", "solve", "round"
 ]
 
-def _assert_unique(li):
-  """Check if elements of a list is unique""" 
-  assert(len(li) == len(set(li)))
+def _is_unique(li):
+  """Check if elements of a list is unique.""" 
+  return len(li) == len(set(li))
 
 
-def _sanity_check(num_single, num_couple, num_hospital,
-                 single_pref_list, couple_pref_list, hospital_pref_list):
-  """Sanity check for construction of instances."""
-  assert(len(single_pref_list) == num_single)
-  assert(len(couple_pref_list) == num_couple)
-  
+def _sanity_check(num_hospital,
+                  single_pref_list, couple_pref_list, hospital_pref_list):
+  """Sanity check for construction of instances.
+
+  Raises:
+    ValueError if any of the preference list has duplicate / has improper index.
+  """
+  num_single = len(single_pref_list)
+  num_couple = len(couple_pref_list)
   for li in couple_pref_list:
-    _assert_unique(li)
+    if not _is_unique(li):
+      raise ValueError("Duplicate hospital pair in couple's preference list.")
     for h0, h1 in li:
-      assert(h0 < num_hospital)
-      assert(h1 < num_hospital)
-      assert(h0 >= 0 or h1 >= 0)
+      if h0 >= num_hospital:
+        raise ValueError("Hospital index out of range in couple's "
+                         "preference list.")
+      if h1 >= num_hospital:
+        raise ValueError("Hospital index out of range in couple's "
+                         "preference list.")
+      if h0 < 0 and h1 < 0:
+        raise ValueError("Hospital pair not admissible.")
   
   for li in single_pref_list:
-    _assert_unique(li)
+    if not _is_unique(li):
+      raise ValueError("Duplicate hospital in single's preference list.")
     for h in li:
-      assert(0 <= h < num_hospital)
+      if not 0 <= h < num_hospital:
+        raise ValueError("Hospital index out of range in single's "
+                         "preference list.")
 
-  if hospital_pref_list:
-    if not isinstance(hospital_pref_list[0], list):
-      hospital_pref_list = [hospital_pref_list]
-    for li in hospital_pref_list:
-      _assert_unique(li)
-      for i in li:
-        if isinstance(i, int):
-          assert(0 <= i < num_single)
-        elif isinstance(i, tuple):
-          assert(0 <= i[0] < num_couple)
-          assert(0 <= i[1] <= 1)
+  if not isinstance(hospital_pref_list[0], list):
+    hospital_pref_list = [hospital_pref_list]
+  for li in hospital_pref_list:
+    if not _is_unique(li):
+      raise ValueError("Duplicate doctor in hospital's preference list.")
+    if not len(li) == num_single + 2 * num_couple:
+      raise ValueError("Hospital must rank all doctors.")
+    for i in li:
+      if isinstance(i, int):
+        if not 0 <= i < num_single:
+          raise ValueError("Single index out of range in hospital's "
+                           "preference list.")
+      elif isinstance(i, tuple):
+        if not 0 <= i[0] < num_couple:
+          raise ValueError("Couple index out of range in hospital's "
+                           "preference list.")
+        if not 0 <= i[1] <= 1:
+          raise ValueError("The second element of a tuple representing a member"
+                           " of a couple must be either 0 or 1.")
 
 
 def _tuple_2_id(num_single, idx):
@@ -190,11 +210,7 @@ class ScarfInstance():
     self.num_single = len(single_pref_list)
     self.num_couple = len(couple_pref_list)
     self.num_hospital = len(hospital_cap)
-    # Complete sanity check before proceeding
-    # start = time.time()
-    _sanity_check(self.num_single, self.num_couple, self.num_hospital,
-                 single_pref_list, couple_pref_list, hospital_pref_list)
-    # end = time.time(); print("Sanity check time: {0:.3f}s".format(end - start))
+
     self.num_applicant = self.num_single + 2 * self.num_couple
     self._nhp = (self.num_hospital + 1) ** 2 - 1
 
@@ -563,6 +579,10 @@ class ScarfSolution():
       a number between 0 and 1 (allocation fraction) if `s` is a doctor(s)-hospital(s)
          pair; a dictionary from hospital/hospitals/doctor to allocation fraction
          if `s` is a string indicating single/couple/hospital.
+
+    Raises:
+      ValueError if input string is not parsable.
+      TypeError if input is neither a tuple nor a string.
     """
     if isinstance(s, tuple):
       if s in self._solution_map:
@@ -577,7 +597,9 @@ class ScarfSolution():
       elif s.startswith("h"):
         return self.get_hospital_allocation(int(s[1:]))
       else:
-        raise TypeError("Unrecognized index.")
+        raise ValueError("Cannot parse input.")
+    else:
+      raise TypeError("Unrecognized index type.")
 
   def get_single_allocation(self, s):
     return {p[1]: self._solution_map[p] for p in self.single_allocations[s]}
@@ -596,6 +618,17 @@ class ScarfSolution():
     return dict(ll)
 
   h = get_hospital_allocation
+
+
+def create_instance(single_pref_list, couple_pref_list,
+                    hospital_pref_list, hospital_cap):
+  """Create an stable matching problem instance."""
+  _sanity_check(num_hospital=len(hospital_cap),
+                single_pref_list=single_pref_list,
+                couple_pref_list=couple_pref_list,
+                hospital_pref_list=hospital_pref_list)
+  return ScarfInstance(single_pref_list, couple_pref_list,
+                       hospital_pref_list, hospital_cap)
 
 
 def solve(ins, verbose=False):
