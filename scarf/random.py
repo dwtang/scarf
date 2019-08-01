@@ -17,8 +17,7 @@ def _id_2_tuple(num_single, idx):
 
 def gen_random_instance(num_single, num_couple, num_hospital,
                         num_additional_seat=0,
-                        single_pref_len=0,
-                        couple_pref_len=0, ihp=True):
+                        single_pref_len=0, couple_pref_len=0, ihp=True):
   """Generate a uniform random instance.
 
   Generate a stable matching instance where single doctor's preference lists are

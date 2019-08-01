@@ -62,6 +62,8 @@ def cardinal_pivot(A, b, card_basis, pivot):
     A: an (m, n) matrix. Must be a non-negative numpy array.
   """
   candrows = np.nonzero(A[:, pivot] > 0)[0]
+  if candrows.size == 0:
+    raise RuntimeError("Cardinal pivot failure.")
   ratios = b[candrows] / A[candrows, pivot]
   # find the row with smallest ratio, 
   # so that after operation vector b can stay positive
@@ -69,11 +71,10 @@ def cardinal_pivot(A, b, card_basis, pivot):
   # transfrom row index to the row index of matrix A
   row = candrows[row]
   col = np.nonzero(A[row, card_basis])[0][0]
-  # col = np.argmax(np.take(A[row, :], card_basis) != 0)
   new_pivot = card_basis[col]
 
   # In principle, could return new_pivot now can perform the matrix and vector
-  # in parallel with ordinal pivot step
+  # in parallel with ordinal pivot step (parallel is hard to realize on Windows)
   card_basis[col] = pivot
 
   b[row] /= A[row, pivot]
@@ -161,7 +162,10 @@ def _scarf_pivot(A, U, b, verbose=False):
   A = A.astype(np.float64, order='C')  # for blas functions to work well
   b = b.astype(np.float64)
   # perturbation for cardinal pivot assumption to hold
-  b -= np.linspace(start=1e-6, stop=2e-6, num=num_rows, dtype=np.float64)
+  # exp(a) is a trancendental number if a is rational!
+  # Ain't no polynomial got this solution.
+  b += 1e-6 * np.exp(np.linspace(start=0.0, stop=1.0,
+                                 num=num_rows, dtype=np.float64))
   # initialize cardinal and ordinal basis, as well as book keeping variables
   card_basis = list(range(num_rows))
   pivot_0 = np.argmax(U[0, num_rows:]) + num_rows
@@ -237,7 +241,12 @@ def scarf_solve(A, U, b, verbose=False):
     print("Avg Ordinal Pivot: {0:.3f}ms.".format(
         1e3 * total_ord_time / pivot_steps))
 
-  alloc = np.linalg.solve(A[:, basis], b)
+  try:
+    alloc = np.linalg.solve(A[:, basis], b)
+  except np.linalg.LinAlgError:
+    raise RuntimeError("Scarf algorithm cardinal pivoting failed due to "
+                       "floating point precision problem. "
+                       "(Yep this is very unlucky...)")
   return alloc, basis, pivot_steps
 
 
