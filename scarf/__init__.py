@@ -45,7 +45,7 @@ Now we specify the capacity of the three hospitals:
 Construct the stable matching instance and solve the problem
 ---------------------------------------------
   >>> import scarf
-  >>> S = scarf.ScarfInstance(single_pref, couple_pref, hospital_pref, hospital_cap)
+  >>> S = scarf.create_instance(single_pref, couple_pref, hospital_pref, hospital_cap)
   >>> sol = scarf.solve(S)
 ----------------------------------------------
 """

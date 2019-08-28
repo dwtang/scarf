@@ -7,6 +7,7 @@ Scarf is a python library for solving stable matching problems with couples, whe
 - Written in python3.
 - Solve for a near feasible stable matching given the preference of doctors and hospitals, and hospital capacities.
 - Generate random doctor hospital instances.
+- Accelerated with Numba. It is fast!
 
 Accepted input format:
 - Python Lists
@@ -26,7 +27,7 @@ Algorithms:
   hospital_pref = [0, (0, 1), 1, (1, 0), (0, 0), (1, 1)]
   hospital_cap = [2, 3, 1]
   
-  S = scarf.ScarfInstance(single_pref, couple_pref, hospital_pref, hospital_cap)
+  S = scarf.create_instance(single_pref, couple_pref, hospital_pref, hospital_cap)
   sol = scarf.solve(S)
 ```
 

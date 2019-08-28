@@ -14,6 +14,7 @@ __all__ = [
     "ScarfInstance", "create_instance", "solve", "round"
 ]
 
+
 def _is_unique(li):
   """Check if elements of a list is unique.""" 
   return len(li) == len(set(li))
