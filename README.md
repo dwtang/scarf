@@ -16,6 +16,12 @@ Accepted input format:
 Algorithms:
 - Scarf's algorithm with Iterative Rounding [[Nguyen and Vohra 2016]](https://web.ics.purdue.edu/~nguye161/e2sided.pdf)
 
+## Installation
+
+```
+pip install scarfmatch
+```
+
 ## Usage
 
 ```
