@@ -19,11 +19,14 @@ def save_json(ins, filename):
     filename: output file name.
   """
   with open(filename, mode="w") as g:
+    hospital_pref_list = ins.hospital_pref_list.hospital_pref_list
+    if ins.hospital_pref_list.is_ihp: 
+      hospital_pref_list = [hospital_pref_list]
     json.dump(
         {
             "single_pref_list": ins.single_pref_list,
             "couple_pref_list": ins.couple_pref_list,
-            "hospital_pref_list": ins.hospital_pref_list,
+            "hospital_pref_list": hospital_pref_list,
             "hospital_cap": ins.hospital_cap
         }, g, indent=4
     )

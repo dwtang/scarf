@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="scarfmatch",
-    version="0.0.2",
+    version="0.0.3",
     author="Dengwang Tang",
     author_email="dwtang@umich.edu",
     description="A package for stable matching problems with couples",

@@ -476,22 +476,25 @@ def _c_select(pair_list, c):
 
 
 def _is_h_related(p, h):
-  return (p[1] == h or p[-1] == h) and p[0] > 0
+  return (p[1] == h or p[-1] == h) and p[0] >= 0
 
 
 def _h_select(pair_list, h):
   return [p for p in pair_list if _is_h_related(p, h)]
 
 
-def _get_member(p, h, x):
-  if len(p) == 2:
-    return [(p[0], x)]
+def _get_member(p, h):
+  """Return the doctors allocated to hospital h via a pair p.
+  """
+  if len(p) == 2: # represents allocation to a single doctor
+    return [p[0]]
+  # otherwise, its an allocation for a couple
   if p[1] == h and p[2] != h:
-    return [((p[0], 0), x)]
+    return [(p[0], 0)]
   if p[1] != h and p[2] == h:
-    return [((p[0], 1), x)]
+    return [(p[0], 1)]
   if p[1] == h and p[2] == h:
-    return [((p[0], 0), x), ((p[0], 1), x)]
+    return [(p[0], 0), (p[0], 1)]
 
 
 class ScarfSolution():
@@ -504,13 +507,17 @@ class ScarfSolution():
   e.g. for a `ScarfSolution` sol,
     sol[(s, h)] is the fractional indicator (weight) of the allocation plan
       'single s to hospital h'.
-    `sol["s20"]` or `sol.s(20)` is a dictionary representing the allocated
-      hospital and their weights/fractions for the 20-th single doctor.
-    `sol["c12"]` or `sol.c(12)` is a dictionary representing the allocated
-      hospital pairs and their weights/fractions for the 12-th couple.
-    `sol["h0"]` or `sol.h(3)` is a dictionary representing the allocated
-      doctors (int for single, tuple for couple member) and their weights/fractions
-      for the 0-th hospital.
+    `sol["s20"]` or `sol.s(20)` is a list of hospitals allocated to the 20-th
+    (0-indexed) single doctor with non-zero weight/fraction. If the solution is integral,
+    then this list has only one element, which is the hospital allocated to the
+    20-th single doctor.
+    `sol["c12"]` or `sol.c(12)` is a list of hospital pairs allocated to the 12-th
+    (0-indexed) couple with non-zero weight/fraction. If the solution is integral,
+    then this list has only one element, which is the hospital pair allocated to the
+    20-th single doctor.
+    `sol["h0"]` or `sol.h(0)` is a list of doctors (single doctor or members of couples)
+    allocated to the 0-th hospital with non-zero weight/fraction. If the solution is integral,
+    then it is the list of doctors allocated to the 0-th hospital.
 
   Attributes:
     num_pivots: number of pivots performed.
@@ -518,8 +525,8 @@ class ScarfSolution():
     act_hospital_cap: array of number of allocated seats in each hospitals after
       allocation.
 
-  Other Attributes: (where the associated `ScarfInstance` object `ins` is needed
-    to understand what these attributes represent.)
+  Other Attributes for the interest of researchers: (where the associated `ScarfInstance` object
+    `ins` is needed to understand what these attributes represent.)
     basis: list of column indices of the matrix ins.A, indicating the support of
       the matching vector.
     alloc: allocation vector, where `alloc[i]` is the fractional indicator of the
@@ -559,14 +566,35 @@ class ScarfSolution():
         _h_select(_pair_list, h) for h in range(S.num_hospital)]
 
   def __repr__(self):
-    s = ["<ScarfSolution of {s} singles, {c} couples, {h} hospitals".format(
+    strlist = ["<ScarfSolution of {s} singles, {c} couples, {h} hospitals".format(
         s=len(self.single_allocations), c=len(self.couple_allocations),
         h=self._num_hospital
     )] 
-    s += ["\twith {0} solution>".format(
+    strlist += ["\twith {0} solution>".format(
         "integral" if self.is_int else "NON integral")
     ]
-    return "\n".join(s)
+    return "\n".join(strlist)
+
+  def __str__(self):
+    strlist = ["Solution for instance with {s} singles, {c} couples, {h} hospitals.".format(
+        s=len(self.single_allocations), c=len(self.couple_allocations),
+        h=self._num_hospital
+    )]
+    strlist += ["Status: {0} solution.".format(
+        "integral" if self.is_int else "NON integral")
+    ]
+    if self.is_int:
+      for s in range(len(self.single_allocations)):
+        strlist += ["Doctor {0} is assigned to hospital {1}".format(s, self.s(s)[0])]
+      for c in range(len(self.couple_allocations)):
+        h0, h1 = self.c(c)[0]
+        strlist += ["First member of Couple {0} is assigned to hospital {1}".format(c, h0)]
+        strlist += ["Second member of Couple {0} is assigned to hospital {1}".format(c, h1)]
+      for h in range(self._num_hospital):
+        strlist += ["Hospital {0} is assigned with the following doctors: {1}".format(h,
+          ", ".join(str(x) for x in self.h(h)))]
+    return "\n".join(strlist)
+
 
   def __getitem__(self, s):
     """Get matched hospital/doctor.
@@ -602,28 +630,77 @@ class ScarfSolution():
     else:
       raise TypeError("Unrecognized index type.")
 
-  def get_single_allocation(self, s):
-    return {p[1]: self._solution_map[p] for p in self.single_allocations[s]}
+  def get_single_allocation(self, s, show_fractions=False):
+    """Get the hospital (or hospitals and/or their corresponding fractions) matched to
+       single doctor s
+
+       Returns:
+         A list of hospital indices if show_fractions=False
+         A dictionary mapping hospital indices to their corresponding fractions if show_fractions=True
+       
+    """
+    if show_fractions:
+      return {p[1]: self._solution_map[p] for p in self.single_allocations[s]}
+    else:
+      return [p[1] for p in self.single_allocations[s]]
 
   s = get_single_allocation
 
-  def get_couple_allocation(self, c):
-    return {p[1:]: self._solution_map[p] for p in self.couple_allocations[c]}
+  def get_couple_allocation(self, c, show_fractions=False):
+    """Get the pairs of hospital (or pairs of hospitals and/or their corresponding fractions) matched to
+       couple c
+
+       Returns:
+         A list of hospital indices pairs if show_fractions=False
+         A dictionary mapping hospital indices pairs to their corresponding fractions if show_fractions=True
+       
+    """
+    if show_fractions:
+      return {p[1:]: self._solution_map[p] for p in self.couple_allocations[c]}
+    else:
+      return [p[1:] for p in self.couple_allocations[c]]
 
   c = get_couple_allocation
 
-  def get_hospital_allocation(self, h):
-    ll = []
-    for p in self.hospital_allocations[h]:
-      ll += _get_member(p, h, self._solution_map[p])
-    return dict(ll)
+  def get_hospital_allocation(self, h, show_fractions=False):
+    """Get the doctors (or doctors and/or their corresponding fractions) matched to hospital h
+
+       Returns:
+         A list of hospital indices pairs if show_fractions=False
+         A dictionary mapping hospital indices pairs to their corresponding fractions if show_fractions=True
+       
+    """
+
+    if show_fractions:
+      res = {}
+      for p in self.hospital_allocations[h]:
+        for member_of_c in _get_member(p, h):
+          res[member_of_c] = self._solution_map[p]
+      return res
+    else:
+      res = []
+      for p in self.hospital_allocations[h]:
+        res += _get_member(p, h)
+      return res
 
   h = get_hospital_allocation
 
 
 def create_instance(single_pref_list, couple_pref_list,
                     hospital_pref_list, hospital_cap):
-  """Create an stable matching problem instance."""
+  """Create an stable matching problem instance.
+
+    Args:
+      single_pref_list: list of list of hospital indices. 
+      couple_pref_list: list of list of tuple of two hospital indices. Use -1
+        to indicate the option of unemployment.
+      hospital_pref_list: 
+        - either a list of list of integers and tuples, where integers
+          represent the index of a single doctor, and a tuple (c, j) represent
+          the j-th member of couple c (j is either 0 or 1)
+        - or a list of integers and tuples for identical hospital preference
+      hospital_cap: a list indicating the number of seats in each hospital.  
+  """
   _sanity_check(num_hospital=len(hospital_cap),
                 single_pref_list=single_pref_list,
                 couple_pref_list=couple_pref_list,

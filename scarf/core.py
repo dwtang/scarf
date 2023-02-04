@@ -259,7 +259,7 @@ def iterative_rounding(basis, alloc, A, num_doctor_row, b, tol=1e-6,
     matching problem and returns a integral stable matching which violates the 
     capacity constraint, but the violations are small. This implementation can 
     guarantee that no individual hospital would be overallocated by more than 2
-    seats, and the total overallocation will be no more than 9 seats.
+    seats, and the total overallocation will be no more than 4 seats.
 
   Args:
     basis: The feasible and dominating basis (with no slack variable) to start with.
